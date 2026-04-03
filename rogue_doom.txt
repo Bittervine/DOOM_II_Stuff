@@ -1,0 +1,71 @@
+===========================================================================
+Archive Maintainer      : Me
+Update to               : rogue_doom.wad
+Advanced engine needed  : Intended for GZDoom but may work on others.
+Primary purpose         : Single+Coop play
+===========================================================================
+Title                   : Rogue Doom
+Filename                : rogue_doom.wad
+Release date            : 2026-03-28
+Author                  : Bittervine
+Email Address           :
+Other Files By Author   :
+Misc. Author Info       : 
+
+Description             : Procedurally generated maps that look like Rogue.
+                          I know this isnt a great set of maps. And in this day
+                          and age of AI generated slop, this may not be what
+                          we need. But I did it anyway for fun.
+                          I am including the script too in case you want to
+                          make a nother set of 32 maps or tweak it.
+                          But frankly, 32 level like this is more than the world
+                          can handle.
+                          
+                          But I think its fun to play 3-4 ones. 
+
+Additional Credits to   : 
+===========================================================================
+* What is included *
+
+New levels              : 32
+Sounds                  : No
+Music                   : No
+Graphics                : No
+Dehacked/BEX Patch      : No
+Demos                   : No
+Other                   : Script if you want to generate more levels. (Why?)
+Other files required    : -
+
+
+* Play Information *
+
+Game                    : DOOM2
+Map #                   : Mapxx
+Single Player           : Designed for
+Cooperative 2-4 Player  : Not tested
+Deathmatch 2-4 Player   : No
+Other game styles       : 
+Difficulty Settings     : Not implemented
+
+
+* Construction *
+
+Base                    : New from scratch
+Build Time              : Script? About two weeks. Generation: A few minutes.
+Editor(s) used          : 
+Known Bugs              : 
+May Not Run With        : 
+Tested With             : GZDoom
+
+
+
+* Copyright / Permissions *
+
+BSD-3 license on everything.
+
+You MAY not distribute this file in any format.
+
+
+* Where to get the file that this text file describes *
+
+Web sites: https://github.com/Bittervine/DOOM_II_Stuff

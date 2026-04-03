@@ -11,7 +11,7 @@ Fingers crossed that noone use savegames (it is supposed to be roguelike after a
 
 License: BSD-3   (https://opensource.org/license/bsd-3-clause)
 
-(C) 2026-03-25   C Frovik  
+(C) 2026-03-25   Bittervine
 """
 
 from __future__ import annotations
@@ -518,14 +518,14 @@ MAP_TIER_START_MID = 2
 MAP_TIER_START_MAX = 3
 
 MAP_TIER_EARLY_MIN = 4
-MAP_TIER_EARLY_MID = 8
-MAP_TIER_EARLY_MAX = 12
+MAP_TIER_EARLY_MID = 5
+MAP_TIER_EARLY_MAX = 6
 
-MAP_TIER_MID_MIN = 13
-MAP_TIER_MID_MID = 17
-MAP_TIER_MID_MAX = 21
+MAP_TIER_MID_MIN = 7
+MAP_TIER_MID_MID = 10
+MAP_TIER_MID_MAX = 13
 
-MAP_TIER_LATE_MIN = 22
+MAP_TIER_LATE_MIN = 14
 MAP_TIER_LATE_MID = 27
 MAP_TIER_LATE_MAX = 32
 
