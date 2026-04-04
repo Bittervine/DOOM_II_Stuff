@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Texture Blend Showcase</title>
+  <style>
+    :root { --bg:#0f141a; --panel:#18202a; --text:#e6edf4; --muted:#95a2b0; --border:#2b3642; --accent:#a8ddff; --ok:#8de1a8; }
+    body { margin:0; color:var(--text); background:radial-gradient(1100px 650px at 15% -20%, #223244, var(--bg)); font:14px/1.35 "Segoe UI", Tahoma, sans-serif; }
+    .wrap { max-width:1700px; margin:0 auto; padding:20px; }
+    h1 { margin:0 0 8px 0; font-size:28px; }
+    h2 { margin:26px 0 12px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+    h3 { margin:0 0 8px; color:var(--accent); font-size:16px; }
+    .lead { margin:0 0 12px; color:var(--muted); }
+    .controls { border:1px solid var(--border); border-radius:10px; background:linear-gradient(180deg,#1d2732,var(--panel)); padding:12px; margin-bottom:14px; }
+    .controls-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+    button { border:1px solid #40607a; background:#1f3344; color:#dbf2ff; border-radius:7px; padding:6px 10px; cursor:pointer; font-weight:600; }
+    button:hover { background:#29445a; }
+    .stats { color:var(--muted); font-size:13px; }
+    textarea { width:100%; min-height:210px; border:1px solid var(--border); border-radius:8px; background:#0f151c; color:#dce9f7; padding:10px; font:12px/1.35 Consolas, Menlo, monospace; box-sizing:border-box; }
+    .base-block { border:1px solid var(--border); border-radius:10px; background:linear-gradient(180deg,#1c2530,var(--panel)); padding:12px; margin:0 0 14px; }
+    .base-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+    .pill { display:inline-block; border:1px solid #345168; background:#13212d; color:#b5dfff; border-radius:999px; padding:2px 9px; font-size:12px; }
+    .blend-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:10px; }
+    .blend-card { border:1px solid var(--border); border-radius:8px; padding:8px; background:#121922; }
+    .blend-label { font-weight:600; margin:0 0 6px; word-break:break-word; }
+    .keep-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 6px; }
+    .keep-chip { font-size:12px; color:var(--ok); }
+    .blend-strip-wrap { border:1px solid #334355; border-radius:4px; background:#0d1117; overflow:hidden; }
+    .blend-strip { display:flex; gap:0; align-items:stretch; }
+    .blend-strip img, .blend-strip .missing { height:96px; min-width:96px; display:block; image-rendering:pixelated; }
+    .missing { display:flex; align-items:center; justify-content:center; padding:0 12px; color:#ffb7b7; background:#2c1515; border-left:1px solid #4f2c2c; white-space:nowrap; }
+    .meta { margin-top:6px; color:var(--muted); font-size:12px; }
+    code { color:#d4ecff; }
+    @media (max-width: 900px) { .blend-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Wall/Insert Blend Showcase</h1>
+  <p class="lead">Each preview is shown as <code>&lt;base&gt;&lt;insert&gt;&lt;base&gt;</code> with no spacing so you can judge blending. Uncheck pairings to remove.</p>
+  <div class="controls">
+    <div class="controls-row">
+      <button type="button" onclick="setAll(true)">Check All (Keep)</button>
+      <button type="button" onclick="setAll(false)">Uncheck All (Remove)</button>
+      <button type="button" onclick="generateFeedback()">Generate Feedback</button>
+      <button type="button" onclick="copyFeedback()">Copy Feedback</button>
+      <span id="stats" class="stats"></span>
+    </div>
+    <textarea id="feedback" spellcheck="false"></textarea>
+  </div>
+  <div id="content"></div>
+</div>
+<script>
+const PAIR_DATA = {"techbase": [{"base": "BLAKWAL2", "decors": ["BLAKWAL1"]}, {"base": "COMPBLUE", "decors": ["COMPSPAN", "COMPSTA1", "COMPSTA2"]}, {"base": "COMPSTA1", "decors": ["COMPSTA2"]}, {"base": "COMPTALL", "decors": ["COMPWERD"]}, {"base": "GRAY1", "decors": ["GRAY4", "GRAYBIG"]}, {"base": "PIPEWAL2", "decors": ["PIPEWAL1"]}, {"base": "SHAWN2", "decors": ["SHAWN1"]}, {"base": "SILVER1", "decors": ["SILVER2", "SILVER3"]}, {"base": "STARTAN2", "decors": ["LITE5", "SUPPORT2", "LITE3"]}, {"base": "STARTAN3", "decors": ["LITE5", "SUPPORT2", "LITE3"]}, {"base": "TEKWALL1", "decors": ["SUPPORT3"]}, {"base": "TEKWALL4", "decors": ["SUPPORT3"]}, {"base": "METAL2", "decors": ["SUPPORT3"]}, {"base": "SUPPORT2", "decors": ["LITE5", "LITE3"]}, {"base": "TEKGREN2", "decors": ["TEKGREN5", "TEKGREN3", "TEKGREN4", "LITE5", "LITE3", "TEKGREN1"]}], "urban": [{"base": "BIGBRIK1", "decors": ["BIGBRIK3"]}, {"base": "BRICK1", "decors": ["BRICK5", "BRICKLIT", "BRWINDOW"]}, {"base": "BRICK4", "decors": ["BRICK3"]}, {"base": "BRICK6", "decors": ["BRICK8", "BRICK9"]}, {"base": "BRONZE1", "decors": ["BRONZE2", "BRONZE3", "BRONZE4"]}, {"base": "BROWNGRN", "decors": ["BRNPOIS"]}, {"base": "BSTONE2", "decors": ["BSTONE3"]}, {"base": "CEMENT1", "decors": ["CEMENT2", "CEMENT5", "CEMENT6"]}, {"base": "CEMENT7", "decors": ["CEMENT8"]}, {"base": "ICKWALL1", "decors": ["ICKWALL2"]}, {"base": "ICKWALL2", "decors": ["ICKWALL4"]}, {"base": "ICKWALL3", "decors": ["ICKWALL4", "ICKWALL7"]}, {"base": "METAL2", "decors": ["METAL3", "METAL4", "METAL5", "METAL6"]}, {"base": "MODWALL1", "decors": ["MODWALL2"]}, {"base": "NUKEDGE1", "decors": ["NUKEPOIS"]}, {"base": "PANCASE2", "decors": ["PANBOOK", "PANBORD1", "PANBORD2", "PANCASE1"]}, {"base": "PANEL4", "decors": ["PANBOOK", "PANEL1", "PANBLACK"]}, {"base": "PANEL6", "decors": ["PANEL7", "PANEL8", "PANEL9"]}, {"base": "PIPE2", "decors": ["PIPE4"]}, {"base": "SLADWALL", "decors": ["SLADPOIS"]}, {"base": "STARG1", "decors": ["STARG2", "STARG3"]}, {"base": "STARGR1", "decors": ["STARGR2"]}, {"base": "STONE2", "decors": ["STONE3"]}, {"base": "STONE4", "decors": ["STONE5"]}, {"base": "STUCCO1", "decors": ["STUCCO2", "STUCCO3"]}, {"base": "WOOD1", "decors": ["WOOD3"]}, {"base": "WOOD8", "decors": ["WOOD9", "WOOD7"]}], "hellish": [{"base": "FIREWALL", "decors": ["FIREWALA"]}, {"base": "GSTONE1", "decors": ["GSTSATYR", "GSTLION", "GSTGARG", "MARBFACE"]}, {"base": "GSTONE2", "decors": ["GSTFONT2"]}, {"base": "MARBLE1", "decors": ["MARBFACE", "GSTGARG", "MARBFAC2", "MARBFAC3"]}, {"base": "MARBLE2", "decors": ["MARBFACE"]}, {"base": "MARBLE3", "decors": ["MARBFAC3"]}, {"base": "MARBGRAY", "decors": ["MARBFAC4"]}, {"base": "SKINMET1", "decors": ["SKINSYMB"]}, {"base": "SKINMET2", "decors": ["SKINMET1", "SKINSCAB", "SKINSYMB"]}, {"base": "WOOD1", "decors": ["WOODGARG"]}]};
+const TEX_META = {"BIGBRIK1": {"src": "textures_png/BIGBRIK1.png", "w": 64, "h": 128, "exists": true}, "BIGBRIK3": {"src": "textures_png/BIGBRIK3.png", "w": 64, "h": 128, "exists": true}, "BLAKWAL1": {"src": "textures_png/BLAKWAL1.png", "w": 64, "h": 128, "exists": true}, "BLAKWAL2": {"src": "textures_png/BLAKWAL2.png", "w": 64, "h": 128, "exists": true}, "BRICK1": {"src": "textures_png/BRICK1.png", "w": 64, "h": 128, "exists": true}, "BRICK3": {"src": "textures_png/BRICK3.png", "w": 64, "h": 128, "exists": true}, "BRICK4": {"src": "textures_png/BRICK4.png", "w": 64, "h": 128, "exists": true}, "BRICK5": {"src": "textures_png/BRICK5.png", "w": 128, "h": 128, "exists": true}, "BRICK6": {"src": "textures_png/BRICK6.png", "w": 64, "h": 128, "exists": true}, "BRICK8": {"src": "textures_png/BRICK8.png", "w": 64, "h": 128, "exists": true}, "BRICK9": {"src": "textures_png/BRICK9.png", "w": 64, "h": 128, "exists": true}, "BRICKLIT": {"src": "textures_png/BRICKLIT.png", "w": 64, "h": 128, "exists": true}, "BRNPOIS": {"src": "textures_png/BRNPOIS.png", "w": 128, "h": 128, "exists": true}, "BRONZE1": {"src": "textures_png/BRONZE1.png", "w": 64, "h": 128, "exists": true}, "BRONZE2": {"src": "textures_png/BRONZE2.png", "w": 64, "h": 128, "exists": true}, "BRONZE3": {"src": "textures_png/BRONZE3.png", "w": 64, "h": 128, "exists": true}, "BRONZE4": {"src": "textures_png/BRONZE4.png", "w": 64, "h": 128, "exists": true}, "BROWNGRN": {"src": "textures_png/BROWNGRN.png", "w": 64, "h": 128, "exists": true}, "BRWINDOW": {"src": "textures_png/BRWINDOW.png", "w": 64, "h": 128, "exists": true}, "BSTONE2": {"src": "textures_png/BSTONE2.png", "w": 64, "h": 128, "exists": true}, "BSTONE3": {"src": "textures_png/BSTONE3.png", "w": 64, "h": 128, "exists": true}, "CEMENT1": {"src": "textures_png/CEMENT1.png", "w": 128, "h": 128, "exists": true}, "CEMENT2": {"src": "textures_png/CEMENT2.png", "w": 128, "h": 128, "exists": true}, "CEMENT5": {"src": "textures_png/CEMENT5.png", "w": 128, "h": 128, "exists": true}, "CEMENT6": {"src": "textures_png/CEMENT6.png", "w": 128, "h": 128, "exists": true}, "CEMENT7": {"src": "textures_png/CEMENT7.png", "w": 64, "h": 128, "exists": true}, "CEMENT8": {"src": "textures_png/CEMENT8.png", "w": 64, "h": 128, "exists": true}, "COMPBLUE": {"src": "textures_png/COMPBLUE.png", "w": 64, "h": 128, "exists": true}, "COMPSPAN": {"src": "textures_png/COMPSPAN.png", "w": 32, "h": 128, "exists": true}, "COMPSTA1": {"src": "textures_png/COMPSTA1.png", "w": 128, "h": 128, "exists": true}, "COMPSTA2": {"src": "textures_png/COMPSTA2.png", "w": 128, "h": 128, "exists": true}, "COMPTALL": {"src": "textures_png/COMPTALL.png", "w": 256, "h": 128, "exists": true}, "COMPWERD": {"src": "textures_png/COMPWERD.png", "w": 64, "h": 128, "exists": true}, "FIREWALA": {"src": "textures_png/FIREWALA.png", "w": 128, "h": 112, "exists": true}, "FIREWALL": {"src": "textures_png/FIREWALL.png", "w": 128, "h": 112, "exists": true}, "GRAY1": {"src": "textures_png/GRAY1.png", "w": 64, "h": 128, "exists": true}, "GRAY4": {"src": "textures_png/GRAY4.png", "w": 64, "h": 128, "exists": true}, "GRAYBIG": {"src": "textures_png/GRAYBIG.png", "w": 128, "h": 128, "exists": true}, "GSTFONT2": {"src": "textures_png/GSTFONT2.png", "w": 64, "h": 128, "exists": true}, "GSTGARG": {"src": "textures_png/GSTGARG.png", "w": 64, "h": 128, "exists": true}, "GSTLION": {"src": "textures_png/GSTLION.png", "w": 64, "h": 128, "exists": true}, "GSTONE1": {"src": "textures_png/GSTONE1.png", "w": 256, "h": 128, "exists": true}, "GSTONE2": {"src": "textures_png/GSTONE2.png", "w": 256, "h": 128, "exists": true}, "GSTSATYR": {"src": "textures_png/GSTSATYR.png", "w": 64, "h": 128, "exists": true}, "ICKWALL1": {"src": "textures_png/ICKWALL1.png", "w": 64, "h": 128, "exists": true}, "ICKWALL2": {"src": "textures_png/ICKWALL2.png", "w": 64, "h": 128, "exists": true}, "ICKWALL3": {"src": "textures_png/ICKWALL3.png", "w": 64, "h": 128, "exists": true}, "ICKWALL4": {"src": "textures_png/ICKWALL4.png", "w": 64, "h": 128, "exists": true}, "ICKWALL7": {"src": "textures_png/ICKWALL7.png", "w": 64, "h": 128, "exists": true}, "LITE3": {"src": "textures_png/LITE3.png", "w": 32, "h": 128, "exists": true}, "LITE5": {"src": "textures_png/LITE5.png", "w": 16, "h": 128, "exists": true}, "MARBFAC2": {"src": "textures_png/MARBFAC2.png", "w": 128, "h": 128, "exists": true}, "MARBFAC3": {"src": "textures_png/MARBFAC3.png", "w": 128, "h": 128, "exists": true}, "MARBFAC4": {"src": "textures_png/MARBFAC4.png", "w": 64, "h": 128, "exists": true}, "MARBFACE": {"src": "textures_png/MARBFACE.png", "w": 128, "h": 128, "exists": true}, "MARBGRAY": {"src": "textures_png/MARBGRAY.png", "w": 64, "h": 128, "exists": true}, "MARBLE1": {"src": "textures_png/MARBLE1.png", "w": 128, "h": 128, "exists": true}, "MARBLE2": {"src": "textures_png/MARBLE2.png", "w": 128, "h": 128, "exists": true}, "MARBLE3": {"src": "textures_png/MARBLE3.png", "w": 128, "h": 128, "exists": true}, "METAL2": {"src": "textures_png/METAL2.png", "w": 64, "h": 128, "exists": true}, "METAL3": {"src": "textures_png/METAL3.png", "w": 64, "h": 128, "exists": true}, "METAL4": {"src": "textures_png/METAL4.png", "w": 64, "h": 128, "exists": true}, "METAL5": {"src": "textures_png/METAL5.png", "w": 64, "h": 128, "exists": true}, "METAL6": {"src": "textures_png/METAL6.png", "w": 64, "h": 128, "exists": true}, "MODWALL1": {"src": "textures_png/MODWALL1.png", "w": 64, "h": 128, "exists": true}, "MODWALL2": {"src": "textures_png/MODWALL2.png", "w": 64, "h": 128, "exists": true}, "NUKEDGE1": {"src": "textures_png/NUKEDGE1.png", "w": 128, "h": 128, "exists": true}, "NUKEPOIS": {"src": "textures_png/NUKEPOIS.png", "w": 128, "h": 128, "exists": true}, "PANBLACK": {"src": "textures_png/PANBLACK.png", "w": 64, "h": 128, "exists": true}, "PANBOOK": {"src": "textures_png/PANBOOK.png", "w": 64, "h": 128, "exists": true}, "PANBORD1": {"src": "textures_png/PANBORD1.png", "w": 32, "h": 128, "exists": true}, "PANBORD2": {"src": "textures_png/PANBORD2.png", "w": 16, "h": 128, "exists": true}, "PANCASE1": {"src": "textures_png/PANCASE1.png", "w": 64, "h": 128, "exists": true}, "PANCASE2": {"src": "textures_png/PANCASE2.png", "w": 64, "h": 128, "exists": true}, "PANEL1": {"src": "textures_png/PANEL1.png", "w": 64, "h": 128, "exists": true}, "PANEL4": {"src": "textures_png/PANEL4.png", "w": 64, "h": 128, "exists": true}, "PANEL6": {"src": "textures_png/PANEL6.png", "w": 64, "h": 128, "exists": true}, "PANEL7": {"src": "textures_png/PANEL7.png", "w": 64, "h": 128, "exists": true}, "PANEL8": {"src": "textures_png/PANEL8.png", "w": 64, "h": 128, "exists": true}, "PANEL9": {"src": "textures_png/PANEL9.png", "w": 64, "h": 128, "exists": true}, "PIPE2": {"src": "textures_png/PIPE2.png", "w": 256, "h": 128, "exists": true}, "PIPE4": {"src": "textures_png/PIPE4.png", "w": 256, "h": 128, "exists": true}, "PIPEWAL1": {"src": "textures_png/PIPEWAL1.png", "w": 64, "h": 128, "exists": true}, "PIPEWAL2": {"src": "textures_png/PIPEWAL2.png", "w": 64, "h": 128, "exists": true}, "SHAWN1": {"src": "textures_png/SHAWN1.png", "w": 128, "h": 128, "exists": true}, "SHAWN2": {"src": "textures_png/SHAWN2.png", "w": 64, "h": 128, "exists": true}, "SILVER1": {"src": "textures_png/SILVER1.png", "w": 64, "h": 128, "exists": true}, "SILVER2": {"src": "textures_png/SILVER2.png", "w": 64, "h": 128, "exists": true}, "SILVER3": {"src": "textures_png/SILVER3.png", "w": 64, "h": 128, "exists": true}, "SKINMET1": {"src": "textures_png/SKINMET1.png", "w": 256, "h": 128, "exists": true}, "SKINMET2": {"src": "textures_png/SKINMET2.png", "w": 256, "h": 128, "exists": true}, "SKINSCAB": {"src": "textures_png/SKINSCAB.png", "w": 256, "h": 128, "exists": true}, "SKINSYMB": {"src": "textures_png/SKINSYMB.png", "w": 256, "h": 128, "exists": true}, "SLADPOIS": {"src": "textures_png/SLADPOIS.png", "w": 64, "h": 128, "exists": true}, "SLADWALL": {"src": "textures_png/SLADWALL.png", "w": 64, "h": 128, "exists": true}, "STARG1": {"src": "textures_png/STARG1.png", "w": 64, "h": 128, "exists": true}, "STARG2": {"src": "textures_png/STARG2.png", "w": 128, "h": 128, "exists": true}, "STARG3": {"src": "textures_png/STARG3.png", "w": 128, "h": 128, "exists": true}, "STARGR1": {"src": "textures_png/STARGR1.png", "w": 64, "h": 128, "exists": true}, "STARGR2": {"src": "textures_png/STARGR2.png", "w": 128, "h": 128, "exists": true}, "STARTAN2": {"src": "textures_png/STARTAN2.png", "w": 128, "h": 128, "exists": true}, "STARTAN3": {"src": "textures_png/STARTAN3.png", "w": 128, "h": 128, "exists": true}, "STONE2": {"src": "textures_png/STONE2.png", "w": 128, "h": 128, "exists": true}, "STONE3": {"src": "textures_png/STONE3.png", "w": 128, "h": 128, "exists": true}, "STONE4": {"src": "textures_png/STONE4.png", "w": 64, "h": 128, "exists": true}, "STONE5": {"src": "textures_png/STONE5.png", "w": 64, "h": 128, "exists": true}, "STUCCO1": {"src": "textures_png/STUCCO1.png", "w": 64, "h": 128, "exists": true}, "STUCCO2": {"src": "textures_png/STUCCO2.png", "w": 64, "h": 128, "exists": true}, "STUCCO3": {"src": "textures_png/STUCCO3.png", "w": 64, "h": 128, "exists": true}, "SUPPORT2": {"src": "textures_png/SUPPORT2.png", "w": 64, "h": 128, "exists": true}, "SUPPORT3": {"src": "textures_png/SUPPORT3.png", "w": 64, "h": 128, "exists": true}, "TEKGREN1": {"src": "textures_png/TEKGREN1.png", "w": 64, "h": 128, "exists": true}, "TEKGREN2": {"src": "textures_png/TEKGREN2.png", "w": 64, "h": 128, "exists": true}, "TEKGREN3": {"src": "textures_png/TEKGREN3.png", "w": 64, "h": 128, "exists": true}, "TEKGREN4": {"src": "textures_png/TEKGREN4.png", "w": 64, "h": 128, "exists": true}, "TEKGREN5": {"src": "textures_png/TEKGREN5.png", "w": 64, "h": 128, "exists": true}, "TEKWALL1": {"src": "textures_png/TEKWALL1.png", "w": 128, "h": 128, "exists": true}, "TEKWALL4": {"src": "textures_png/TEKWALL4.png", "w": 128, "h": 128, "exists": true}, "WOOD1": {"src": "textures_png/WOOD1.png", "w": 256, "h": 128, "exists": true}, "WOOD3": {"src": "textures_png/WOOD3.png", "w": 256, "h": 128, "exists": true}, "WOOD7": {"src": "textures_png/WOOD7.png", "w": 64, "h": 128, "exists": true}, "WOOD8": {"src": "textures_png/WOOD8.png", "w": 64, "h": 128, "exists": true}, "WOOD9": {"src": "textures_png/WOOD9.png", "w": 64, "h": 128, "exists": true}, "WOODGARG": {"src": "textures_png/WOODGARG.png", "w": 64, "h": 128, "exists": true}};
+
+function texInfo(name) {
+  return TEX_META[name] || {src:`textures_png/${name}.png`, w:0, h:0, exists:false};
+}
+
+function imgEl(name) {
+  const meta = texInfo(name);
+  if (meta.exists) return `<img loading="lazy" src="${meta.src}" alt="${name}" />`;
+  return `<div class="missing">${name}</div>`;
+}
+
+function render() {
+  const root = document.getElementById('content');
+  let pairId = 0;
+  const themes = ['techbase','urban','hellish'];
+  root.innerHTML = themes
+    .filter((t) => PAIR_DATA[t])
+    .map((theme) => {
+      const themeTitle = theme.charAt(0).toUpperCase() + theme.slice(1);
+      const blocks = PAIR_DATA[theme].map((g) => {
+        const baseMeta = texInfo(g.base);
+        const baseInfo = (baseMeta.w && baseMeta.h) ? `${baseMeta.w}x${baseMeta.h}` : '?x?';
+        const cards = g.decors.map((decor) => {
+          pairId += 1;
+          const dMeta = texInfo(decor);
+          const dInfo = (dMeta.w && dMeta.h) ? `${dMeta.w}x${dMeta.h}` : '?x?';
+          const label = `${g.base} + ${decor} + ${g.base}`;
+          return `
+            <div class="blend-card">
+              <div class="keep-row">
+                <label for="pair_${pairId}" class="blend-label" style="margin:0;">${label}</label>
+                <label class="keep-chip"><input class="pair-check" id="pair_${pairId}" type="checkbox" checked data-theme="${theme}" data-base="${g.base}" data-decor="${decor}" onchange="updateStats()" /> keep</label>
+              </div>
+              <div class="blend-strip-wrap"><div class="blend-strip">${imgEl(g.base)}${imgEl(decor)}${imgEl(g.base)}</div></div>
+              <div class="meta">Insert: ${decor} (${dInfo})</div>
+            </div>`;
+        }).join('');
+        return `
+          <div class="base-block">
+            <div class="base-head"><h3 style="margin:0;">Base: ${g.base}</h3><span class="pill">${baseInfo}</span></div>
+            <div class="blend-grid">${cards}</div>
+          </div>`;
+      }).join('');
+      return `<h2>${themeTitle}</h2>${blocks}`;
+    }).join('');
+}
+
+function pairPayloadFromChecks() {
+  const checks = Array.from(document.querySelectorAll('.pair-check'));
+  const keep = [];
+  const remove = [];
+  for (const cb of checks) {
+    const item = {
+      theme: cb.getAttribute('data-theme') || '',
+      base: cb.getAttribute('data-base') || '',
+      decor: cb.getAttribute('data-decor') || '',
+    };
+    if (cb.checked) keep.push(item); else remove.push(item);
+  }
+  return { keep, remove, total: checks.length };
+}
+
+function updateStats() {
+  const data = pairPayloadFromChecks();
+  const stats = document.getElementById('stats');
+  if (stats) stats.textContent = `${data.keep.length} kept / ${data.remove.length} removed / ${data.total} total`;
+}
+
+function setAll(state) {
+  const checks = document.querySelectorAll('.pair-check');
+  checks.forEach((cb) => { cb.checked = !!state; });
+  updateStats();
+  generateFeedback();
+}
+
+function generateFeedback() {
+  const data = pairPayloadFromChecks();
+  const payload = {
+    version: 1,
+    intent: 'column_pair_feedback',
+    generated_at: new Date().toISOString(),
+    keep: data.keep,
+    remove: data.remove,
+  };
+  const ta = document.getElementById('feedback');
+  if (ta) ta.value = JSON.stringify(payload, null, 2);
+}
+
+async function copyFeedback() {
+  const ta = document.getElementById('feedback');
+  if (!ta) return;
+  if (!ta.value.trim()) generateFeedback();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(ta.value);
+      return;
+    }
+  } catch (_err) {}
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+}
+
+render();
+updateStats();
+generateFeedback();
+</script>
+</body>
+</html>

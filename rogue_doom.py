@@ -620,16 +620,16 @@ def monster_collision_radius_units(thing_type: int) -> float | None:
     return float(radius)
 
 TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
-    (2013, 10),  # Soulsphere
-    (2023, 10),  # Berserk Pack
-    (82, 10),    # Super Shotgun
-    (2003, 10),  # Rocket Launcher    
-    (2019, 10),  # Blue Armor
-    (2006, 5),   # BFG9000
-    (8, 10),     # Ammo Backpack
-    (83, 10),    # Megasphere
-    (2004, 10),  # Plasma Rifle
-    
+    (2019, 10), # Blue Armor    
+    (2002, 5),  # Chaingun
+    (82, 5),    # Super Shotgun    
+    (2003, 5),  # Rocket Launcher    
+    (2004, 5),  # Plasma Rifle        
+    (2006, 3),  # BFG9000
+    (8, 20),    # Ammo Backpack    
+    (2023, 10), # Berserk Pack
+    (83, 20),   # Megasphere
+    (2013, 10), # Soulsphere    
 )
 
 ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
@@ -837,7 +837,7 @@ COLUMN_GROUPS_BY_THEME: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("FIREWALL", ("FIREWALA",)),
         ("GSTONE1", ("GSTSATYR", "GSTLION", "GSTGARG", "MARBFACE")),
         ("GSTONE2", ("GSTFONT2",)),
-        ("MARBLE1", ("MARBFACE", "GSTGARG", "MARBFAC2", "MARBFAC3")),
+        ("MARBLE1", ("MARBFACE", "MARBFAC2", "MARBFAC3")),
         ("MARBLE2", ("MARBFACE",)),
         ("MARBLE3", ("MARBFAC3",)),
         ("MARBGRAY", ("MARBFAC4",)),
@@ -1217,6 +1217,20 @@ def weighted_pick(weighted: Iterable[tuple[int, int]], rng: random.Random) -> in
         if roll < acc:
             return value
     return items[-1][0]
+
+
+def treasure_room_reward_for_map(map_num: int, rng: random.Random) -> int:
+    """Pick treasure reward deterministically for early maps, weighted thereafter.
+
+    MAP01..MAPN (N=len(TREASURE_ROOM_REWARD_WEIGHTS)) use table order directly.
+    Later maps use weighted random selection from the same table.
+    """
+    ordered_rewards = TREASURE_ROOM_REWARD_WEIGHTS
+    if not ordered_rewards:
+        raise ValueError("TREASURE_ROOM_REWARD_WEIGHTS cannot be empty.")
+    if 1 <= int(map_num) <= len(ordered_rewards):
+        return ordered_rewards[int(map_num) - 1][0]
+    return weighted_pick(ordered_rewards, rng)
 
 
 def write_wad(path: Path, wad: Wad) -> None:
@@ -8559,7 +8573,7 @@ def add_map_objects(
     for room_idx in dead_ends:
         if room_idx != treasure_room_idx:
             continue  # Only the treasure room gets the special dead-end drop table.
-        reward_type = weighted_pick(TREASURE_ROOM_REWARD_WEIGHTS, rng)
+        reward_type = treasure_room_reward_for_map(map_num, rng)
         blocked = room_item_blocked(room_idx)
         reward_picker = room_point_picker_from_pool(room_idx, 0.42, blocked)
         place_thing_spaced(

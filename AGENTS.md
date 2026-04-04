@@ -1,0 +1,3 @@
+- Only commit when explicitly told to do so
+- Only push when explicitly told to do so
+- Python is usually in c:\Portable\WinPython\python\python.exe
