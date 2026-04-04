@@ -621,10 +621,11 @@ def monster_collision_radius_units(thing_type: int) -> float | None:
 
 TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
     (2019, 10), # Blue Armor    
-    (2002, 5),  # Chaingun
+    (2002, 5),  # Chaingun    
     (82, 5),    # Super Shotgun    
     (2003, 5),  # Rocket Launcher    
     (2004, 5),  # Plasma Rifle        
+    (2005, 5),  # Chainsaw
     (2006, 3),  # BFG9000
     (8, 20),    # Ammo Backpack    
     (2023, 10), # Berserk Pack
@@ -638,10 +639,10 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2012, 2),   # Medikit
         (2007, 10),  # Ammo Clip
         (2008, 10),  # Shells
-        (17, 3),     # Cell Charge
+        (17, 1),     # Cell Charge
         (2010, 1),   # Rocket
-        (2014, 32),  # Health Bonus
-        (2015, 32),  # Armor Bonus
+        (2014, 33),  # Health Bonus
+        (2015, 33),  # Armor Bonus
         (0, 0),      # No drop
     ),
     MAP_TIER_EARLY: (
@@ -649,10 +650,10 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2012, 2),   # Medikit
         (2007, 10),  # Ammo Clip
         (2008, 10),  # Shells
-        (17, 3),     # Cell Charge
+        (17, 1),     # Cell Charge
         (2010, 1),   # Rocket
-        (2014, 32),  # Health Bonus
-        (2015, 32),  # Armor Bonus
+        (2014, 33),  # Health Bonus
+        (2015, 33),  # Armor Bonus
         (0, 0),      # No drop
     ),
     MAP_TIER_MID: (
@@ -660,10 +661,10 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2012, 2),   # Medikit
         (2007, 10),  # Ammo Clip
         (2008, 10),  # Shells
-        (17, 3),     # Cell Charge
+        (17, 1),     # Cell Charge
         (2010, 1),   # Rocket
-        (2014, 32),  # Health Bonus
-        (2015, 32),  # Armor Bonus
+        (2014, 33),  # Health Bonus
+        (2015, 33),  # Armor Bonus
         (0, 0),      # No drop
     ),
     MAP_TIER_LATE: (
@@ -671,10 +672,10 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2012, 2),   # Medikit
         (2007, 10),  # Ammo Clip
         (2008, 10),  # Shells
-        (17, 3),     # Cell Charge
+        (17, 1),     # Cell Charge
         (2010, 1),   # Rocket
-        (2014, 32),  # Health Bonus
-        (2015, 32),  # Armor Bonus
+        (2014, 33),  # Health Bonus
+        (2015, 33),  # Armor Bonus
         (0, 0),      # No drop
     ),
 }
