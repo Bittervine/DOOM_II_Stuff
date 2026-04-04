@@ -92,6 +92,8 @@ ROOM_L_SHAPE_CHANCE = 0.50
 CORRIDOR_VIAL_BOOST_MULTIPLIER = 1.50
 CORRIDOR_ARMOR_BOOST_MULTIPLIER = 1.50
 MONSTER_DEAF_CHANCE = 0.66
+MONSTER_GAP_MARGIN_UNITS = 5.0
+MONSTER_BOX_LINE_CLEARANCE_UNITS = 2.0
 MAX_RETRIES = 16
 DEFAULT_DEVELOPMENT_MAP_COUNT = 32
 DEBUG_INTERNAL_SECTOR_PLACEMENT = True
@@ -582,12 +584,48 @@ CORRIDOR_MONSTER_WEIGHTS: tuple[tuple[int, int], ...] = (
     (3001, 33),  # imp
 )
 
+# Doom thing radii in map units (used for spawn clearance checks).
+MONSTER_RADIUS_BY_THING_TYPE: dict[int, float] = {
+    3004: 20.0,  # Zombieman
+    9: 20.0,     # Shotgun Guy
+    65: 20.0,    # Chaingunner
+    3001: 20.0,  # Imp
+    66: 20.0,    # Revenant
+    64: 20.0,    # Arch-Vile
+    69: 24.0,    # Hell Knight
+    3003: 24.0,  # Baron of Hell
+    3002: 30.0,  # Demon
+    58: 30.0,    # Spectre
+    3005: 31.0,  # Cacodemon
+    71: 31.0,    # Pain Elemental
+    67: 48.0,    # Mancubus
+}
+
+
+def monster_spawn_clearance_units(thing_type: int) -> float:
+    """Per-side spawn clearance from blockers/walls for a monster type.
+
+    We treat MONSTER_GAP_MARGIN_UNITS as a total extra lane width:
+    required_gap = 2*radius + margin. Per-side clearance is half that:
+    radius + margin/2.
+    """
+    radius = MONSTER_RADIUS_BY_THING_TYPE.get(int(thing_type), OBJECT_MIN_SPACING_UNITS)
+    return float(radius) + (float(MONSTER_GAP_MARGIN_UNITS) * 0.5)
+
+
+def monster_collision_radius_units(thing_type: int) -> float | None:
+    radius = MONSTER_RADIUS_BY_THING_TYPE.get(int(thing_type))
+    if radius is None:
+        return None
+    return float(radius)
+
 TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
     (2013, 10),  # Soulsphere
     (2023, 10),  # Berserk Pack
     (82, 10),    # Super Shotgun
     (2003, 10),  # Rocket Launcher
     (2004, 10),  # Plasma Rifle
+    (2006, 5),   # BFG9000
     (8, 10),     # Ammo Backpack
     (83, 10),    # Megasphere
     (2019, 10),  # Blue Armor
@@ -2510,6 +2548,12 @@ def add_object(
     py = float(y)
     spacing_sq = float(min_spacing_units) * float(min_spacing_units)
     label = debug_label or f"type={thing_type}"
+    monster_radius = monster_collision_radius_units(thing_type)
+    monster_line_clearance_sq = (
+        float(MONSTER_BOX_LINE_CLEARANCE_UNITS) * float(MONSTER_BOX_LINE_CLEARANCE_UNITS)
+        if monster_radius is not None
+        else 0.0
+    )
 
     if line_segments is not None:
         for a, b in line_segments:
@@ -2518,6 +2562,22 @@ def add_object(
                     f"OBJECT_REJECT label={label} reason=line_clearance x={x} y={y} spacing={min_spacing_units:.1f}"
                 )
                 return False
+            if monster_radius is not None and monster_line_clearance_sq > 0.0:
+                half = float(monster_radius)
+                edge_dist_sq = segment_to_aabb_distance_sq(
+                    a,
+                    b,
+                    px - half,
+                    px + half,
+                    py - half,
+                    py + half,
+                )
+                if edge_dist_sq < monster_line_clearance_sq:
+                    log_trace(
+                        f"OBJECT_REJECT label={label} reason=monster_box_line_clearance "
+                        f"x={x} y={y} radius={monster_radius:.1f} clearance={MONSTER_BOX_LINE_CLEARANCE_UNITS:.1f}"
+                    )
+                    return False
 
     for existing in map_data.things:
         dx = px - float(existing.x)
@@ -7655,6 +7715,7 @@ def add_map_objects(
     layout: PolyLayout,
     spec: EpisodeMapSpec,
     rng: random.Random,
+    monster_rng: random.Random | None = None,
     population_targets: MapPopulationTargets | None = None,
     blocked_local_polys_by_room: dict[int, list[tuple[tuple[float, float], ...]]] | None = None,
     sunken_local_polys_by_room: dict[int, list[tuple[tuple[float, float], ...]]] | None = None,
@@ -7664,6 +7725,8 @@ def add_map_objects(
     if not layout.rooms:
         raise ValueError(f"{spec.output_map}: no rooms in polygon layout.")
     map_num = map_number_from_name(spec.output_map) or 1
+    if monster_rng is None:
+        monster_rng = rng
 
     targets = population_targets or MapPopulationTargets(
         rooms=list(range(len(layout.rooms))),
@@ -8019,10 +8082,7 @@ def add_map_objects(
         *,
         force_all_deaf: bool = False,
     ) -> None:
-        edge_clearance_sq = OBJECT_MIN_SPACING_UNITS * OBJECT_MIN_SPACING_UNITS
-        room_pool_picker = room_point_picker_from_pool(room_idx, 0.72, blocked)
-
-        def local_spawn_valid(lx: float, ly: float) -> bool:
+        def local_spawn_valid(lx: float, ly: float, edge_clearance_sq: float) -> bool:
             point = (lx, ly)
             if not point_in_room_local_shape(room, lx, ly):
                 return False
@@ -8033,9 +8093,20 @@ def add_map_objects(
                     return False
             return True
 
-        def random_point_behind_cover() -> tuple[int, int]:
+        def room_monster_picker(monster_clearance: float) -> tuple[int, int]:
+            return random_point_in_room(
+                room,
+                rng,
+                margin=0.72,
+                blocked_local_polys=blocked,
+                edge_clearance=monster_clearance,
+            )
+
+        def random_point_behind_cover(monster_clearance: float) -> tuple[int, int]:
             if not cover_polys or entry_target is None:
-                return room_pool_picker()
+                return room_monster_picker(monster_clearance)
+
+            edge_clearance_sq = float(monster_clearance) * float(monster_clearance)
 
             tx, ty = entry_target
             dx = float(tx) - room.center[0]
@@ -8061,39 +8132,42 @@ def add_map_objects(
                     uy = vy / mag
                 px = cx + (ux * rng.uniform(56.0, 120.0)) + ((-uy) * rng.uniform(-40.0, 40.0))
                 py = cy + (uy * rng.uniform(56.0, 120.0)) + (ux * rng.uniform(-40.0, 40.0))
-                if not local_spawn_valid(px, py):
+                if not local_spawn_valid(px, py, edge_clearance_sq):
                     continue
                 wx, wy = local_to_world(room.center, room.tangent, room.normal, px, py)
                 return int(round(wx)), int(round(wy))
 
-            return room_pool_picker()
+            return room_monster_picker(monster_clearance)
 
         spawn_count = rng.randint(
             int(ROOM_MONSTER_BASE_MIN + map_num * ROOM_MONSTER_SCALE),
             int(ROOM_MONSTER_BASE_MAX + map_num * ROOM_MONSTER_SCALE),
         )
         for _ in range(spawn_count):
-            is_deaf = bool(force_all_deaf) or (rng.random() < MONSTER_DEAF_CHANCE)
+            is_deaf = bool(force_all_deaf) or (monster_rng.random() < MONSTER_DEAF_CHANCE)
             monster_flags = 7 | (THING_FLAG_AMBUSH if is_deaf else 0)
+            monster_type = weighted_pick(
+                pick_tier_table_by_map_number(map_num, ROOM_MONSTER_WEIGHTS_BY_TIER, monster_rng),
+                monster_rng,
+            )
+            monster_clearance = monster_spawn_clearance_units(monster_type)
             angle_picker = None
             if entry_target is not None:
                 tx, ty = entry_target
                 angle_picker = lambda x, y, tx=tx, ty=ty: facing_angle_toward(x, y, tx, ty, jitter=45.0)
             point_picker = (
-                random_point_behind_cover
+                (lambda clearance=monster_clearance: random_point_behind_cover(clearance))
                 if is_deaf
-                else room_pool_picker
+                else (lambda clearance=monster_clearance: room_monster_picker(clearance))
             )
             place_thing_spaced(
-                thing_type=weighted_pick(
-                    pick_tier_table_by_map_number(map_num, ROOM_MONSTER_WEIGHTS_BY_TIER, rng),
-                    rng,
-                ),
-                angle=rng.choice((0, 45, 90, 135, 180, 225, 270, 315)),
+                thing_type=monster_type,
+                angle=monster_rng.choice((0, 45, 90, 135, 180, 225, 270, 315)),
                 angle_picker=angle_picker,
                 point_picker=point_picker,
                 flags=monster_flags,
                 attempts=72,
+                min_spacing_units=monster_clearance,
             )
 
     def add_map_pickups(
@@ -8405,16 +8479,16 @@ def add_map_objects(
             int(CORRIDOR_MONSTER_BASE_MAX + map_num * CORRIDOR_MONSTER_SCALE),
         )
         for _ in range(corridor_monster_count):
-            (base_px, base_py), (tx, ty) = rng.choice(monster_points)
-            is_deaf = rng.random() < MONSTER_DEAF_CHANCE
+            (base_px, base_py), (tx, ty) = monster_rng.choice(monster_points)
+            is_deaf = monster_rng.random() < MONSTER_DEAF_CHANCE
             monster_flags = 7 | (THING_FLAG_AMBUSH if is_deaf else 0)
             place_thing_spaced(
-                weighted_pick(CORRIDOR_MONSTER_WEIGHTS, rng),
+                weighted_pick(CORRIDOR_MONSTER_WEIGHTS, monster_rng),
                 point_picker=lambda px=base_px, py=base_py: (
                     int(round(px)),
                     int(round(py)),
                 ),
-                angle=rng.choice((0, 45, 90, 135, 180, 225, 270, 315)),
+                angle=monster_rng.choice((0, 45, 90, 135, 180, 225, 270, 315)),
                 angle_picker=lambda x, y, tx=tx, ty=ty: facing_angle_toward(
                     x,
                     y,
@@ -8651,6 +8725,52 @@ def point_to_segment_distance_sq(
     dx = px - qx
     dy = py - qy
     return (dx * dx) + (dy * dy)
+
+
+def point_in_aabb(
+    point: tuple[float, float],
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+) -> bool:
+    px, py = point
+    return (min_x <= px <= max_x) and (min_y <= py <= max_y)
+
+
+def segment_to_segment_distance_sq(
+    a1: tuple[float, float],
+    a2: tuple[float, float],
+    b1: tuple[float, float],
+    b2: tuple[float, float],
+) -> float:
+    if segments_intersect(a1, a2, b1, b2):
+        return 0.0
+    return min(
+        point_to_segment_distance_sq(a1, b1, b2),
+        point_to_segment_distance_sq(a2, b1, b2),
+        point_to_segment_distance_sq(b1, a1, a2),
+        point_to_segment_distance_sq(b2, a1, a2),
+    )
+
+
+def segment_to_aabb_distance_sq(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    min_x: float,
+    max_x: float,
+    min_y: float,
+    max_y: float,
+) -> float:
+    if point_in_aabb(a, min_x, max_x, min_y, max_y) or point_in_aabb(b, min_x, max_x, min_y, max_y):
+        return 0.0
+    edges = (
+        ((min_x, min_y), (max_x, min_y)),
+        ((max_x, min_y), (max_x, max_y)),
+        ((max_x, max_y), (min_x, max_y)),
+        ((min_x, max_y), (min_x, min_y)),
+    )
+    return min(segment_to_segment_distance_sq(a, b, e0, e1) for e0, e1 in edges)
 
 
 def segments_intersect(
@@ -9944,6 +10064,7 @@ def make_map(
     spec: EpisodeMapSpec,
     theme: ThemeStyle,
     rng: random.Random,
+    monster_rng: random.Random | None = None,
 ) -> tuple[PolyLayout, MutableMap, int, dict[int, int]]:
     last_geom_error: Exception | None = None
     for map_attempt in range(1, 17):
@@ -9973,6 +10094,7 @@ def make_map(
                 layout,
                 spec,
                 rng,
+                monster_rng=monster_rng,
                 population_targets=targets,
                 blocked_local_polys_by_room=blocked_local_polys_by_room,
                 sunken_local_polys_by_room=sunken_local_polys_by_room,
@@ -11398,7 +11520,13 @@ def build_pwad(output: Path, specs: list[EpisodeMapSpec], *, build_znodes: bool 
             raise ValueError(f"Unknown theme '{spec.theme}'.")
         chosen_seed = int(spec.map_seed)
         rng = random.Random(chosen_seed)
-        layout, map_data, room_detail_count, room_sector_lookup = make_map(spec, theme, rng)
+        monster_rng = random.Random(chosen_seed ^ 0x555555AA)
+        layout, map_data, room_detail_count, room_sector_lookup = make_map(
+            spec,
+            theme,
+            rng,
+            monster_rng=monster_rng,
+        )
 
         # Debug probe: append a tiny hidden square room at the very end of map
         # construction so the final linedefs are unrelated to gameplay geometry.
