@@ -75,8 +75,8 @@ INTERNAL_SECTOR_SCALE = 1.0
 CORRIDOR_GEOMETRY_SCALE = 1.0
 # Backward-compatible alias kept where corridor length code already uses this name.
 CORRIDOR_LENGTH_SCALE = CORRIDOR_GEOMETRY_SCALE
-CORRIDOR_LIGHT_FACTOR_MIN = 0.55
-CORRIDOR_LIGHT_FACTOR_MAX = 0.97
+CORRIDOR_LIGHT_FACTOR_MIN = 0.60
+CORRIDOR_LIGHT_FACTOR_MAX = 1.00
 ROOM_LIGHT_FACTOR_MIN = 0.75
 ROOM_LIGHT_FACTOR_MAX = 1.00
 CORRIDOR_STEP_RUN_UNITS = 2.0
@@ -552,14 +552,14 @@ ROOM_MONSTER_WEIGHTS_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (65, 10),    # Chaingunner
     ),
     MAP_TIER_MID: (
-        (3004, 20),  # Zombieman
-        (9, 20),     # Shotgun Guy
-        (3001, 20),  # Imp
+        (3004, 19),  # Zombieman
+        (9, 19),     # Shotgun Guy
+        (3001, 19),  # Imp
         (3002, 11),  # Demon
         (58, 8),     # Spectre
-        (65, 15),    # Chaingunner
-        (3005, 3),   # Cacodemon
-        (69, 3),     # Hell Knight
+        (65, 14),    # Chaingunner
+        (3005, 5),   # Cacodemon
+        (69, 5),     # Hell Knight
     ),
     MAP_TIER_LATE: (
         (3004, 15),  # Zombieman
@@ -623,12 +623,13 @@ TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
     (2013, 10),  # Soulsphere
     (2023, 10),  # Berserk Pack
     (82, 10),    # Super Shotgun
-    (2003, 10),  # Rocket Launcher
-    (2004, 10),  # Plasma Rifle
+    (2003, 10),  # Rocket Launcher    
+    (2019, 10),  # Blue Armor
     (2006, 5),   # BFG9000
     (8, 10),     # Ammo Backpack
     (83, 10),    # Megasphere
-    (2019, 10),  # Blue Armor
+    (2004, 10),  # Plasma Rifle
+    
 )
 
 ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
