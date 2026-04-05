@@ -492,14 +492,14 @@ THEMES: dict[str, ThemeStyle] = {
 
 # Monster & item count controls.
 ROOM_MONSTER_BASE_MIN = 1
-ROOM_MONSTER_BASE_MAX = 6
-ROOM_MONSTER_SCALE = 0.10            # extra per level
+ROOM_MONSTER_BASE_MAX = 7
+ROOM_MONSTER_SCALE = 0.20            # extra per level
 
 CORRIDOR_MONSTER_BASE_MIN = 0
 CORRIDOR_MONSTER_BASE_MAX = 3
 CORRIDOR_MONSTER_SCALE = 0.05        # extra per level
 
-ROOM_ITEM_BASE_MIN = 4
+ROOM_ITEM_BASE_MIN = 2
 ROOM_ITEM_BASE_MAX = 7
 ROOM_ITEM_SCALE = 0.20               # extra per level
 
@@ -524,11 +524,11 @@ MAP_TIER_EARLY_MID = 5
 MAP_TIER_EARLY_MAX = 6
 
 MAP_TIER_MID_MIN = 7
-MAP_TIER_MID_MID = 10
-MAP_TIER_MID_MAX = 13
+MAP_TIER_MID_MID = 9
+MAP_TIER_MID_MAX = 11
 
-MAP_TIER_LATE_MIN = 14
-MAP_TIER_LATE_MID = 27
+MAP_TIER_LATE_MIN = 12
+MAP_TIER_LATE_MID = 26
 MAP_TIER_LATE_MAX = 32
 
 
@@ -562,19 +562,19 @@ ROOM_MONSTER_WEIGHTS_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (69, 5),     # Hell Knight
     ),
     MAP_TIER_LATE: (
-        (3004, 15),  # Zombieman
-        (9, 15),     # Shotgun Guy
-        (3001, 15),  # Imp
-        (3002, 12),  # Demon
-        (58, 8),     # Spectre
-        (65, 15),    # Chaingunner
+        (3004, 13),  # Zombieman
+        (9, 13),     # Shotgun Guy
+        (3001, 14),  # Imp
+        (3002, 11),  # Demon
+        (58, 7),     # Spectre
+        (65, 13),    # Chaingunner
         (3005, 8),   # Cacodemon
-        (69, 5),     # Hell Knight
-        (66, 2),     # Revenant
-        (3003, 2),   # Baron of Hell
+        (69, 8),     # Hell Knight
+        (66, 3),     # Revenant
+        (3003, 3),   # Baron of Hell        
+        (67, 3),     # Mancubus
+        (71, 3),     # Pain Elemental
         (64, 1),     # Arch-Vile
-        (67, 1),     # Mancubus
-        (71, 1),     # Pain Elemental
     ),
 }
 
@@ -626,8 +626,8 @@ TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
     (2003, 5),  # Rocket Launcher    
     (2004, 5),  # Plasma Rifle        
     (2005, 5),  # Chainsaw
-    (2006, 3),  # BFG9000
-    (8, 20),    # Ammo Backpack    
+    (2006, 2),  # BFG9000
+    (8, 23),    # Ammo Backpack    
     (2023, 10), # Berserk Pack
     (83, 20),   # Megasphere
     (2013, 10), # Soulsphere    
@@ -938,6 +938,7 @@ TITLE_ADJECTIVES_BY_THEME: dict[str, tuple[str, ...]] = {
         "Rustbound",
         "Silent",
         "Buried",
+        "Secret",
     ),
     "urban": (
         "Cursed",
@@ -962,11 +963,12 @@ TITLE_ADJECTIVES_BY_THEME: dict[str, tuple[str, ...]] = {
         "Baleful",
         "Profane",
         "Ravaged",
+        "Unholy",
     ),
 }
 TITLE_PLACE_BY_THEME: dict[str, tuple[str, ...]] = {
     "techbase": ("Base", "Complex", "Facility", "Mine", "Refinery", "Depot", "Station", "Foundry"),
-    "urban": ("Block", "District", "Cellar", "Bastion", "Keep", "Vault", "Catacomb", "Quarter"),
+    "urban": ("Block", "District", "Cellar", "Bastion", "Keep", "Vault", "Quarter"),
     "hellish": ("Pit", "Dungeon", "Crypt", "Sanctum", "Abyss", "Temple", "Catacomb", "Chasm"),
 }
 TITLE_OF_SUFFIXES: tuple[str, ...] = (
@@ -993,11 +995,11 @@ def default_episode_plan(base_seed: int | None = None) -> list[EpisodeMapSpec]:
     def choose_weighted_theme(map_num: int) -> str:
         tier = map_tier_from_number(map_num)
         if tier in {MAP_TIER_START, MAP_TIER_EARLY}:
-            weights = (("techbase", 0.5), ("urban", 0.3), ("hellish", 0.2))
+            weights = (("techbase", 0.5), ("urban", 0.4), ("hellish", 0.1))
         elif tier == MAP_TIER_MID:
-            weights = (("techbase", 0.2), ("urban", 0.5), ("hellish", 0.3))
+            weights = (("techbase", 0.4), ("urban", 0.4), ("hellish", 0.2))
         else:
-            weights = (("techbase", 0.3), ("urban", 0.2), ("hellish", 0.5))
+            weights = (("techbase", 0.3), ("urban", 0.3), ("hellish", 0.4))
         roll = plan_rng.random()
         acc = 0.0
         for theme_name, chance in weights:
