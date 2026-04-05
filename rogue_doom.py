@@ -94,6 +94,7 @@ CORRIDOR_ARMOR_BOOST_MULTIPLIER = 1.50
 MONSTER_DEAF_CHANCE = 0.66
 MONSTER_GAP_MARGIN_UNITS = 5.0
 MONSTER_BOX_LINE_CLEARANCE_UNITS = 2.0
+MONSTER_VISIBILITY_DIAMETER_MARGIN_UNITS = 2.0
 MAX_RETRIES = 16
 DEFAULT_DEVELOPMENT_MAP_COUNT = 32
 DEBUG_INTERNAL_SECTOR_PLACEMENT = True
@@ -7890,23 +7891,25 @@ def add_map_objects(
         return picker
 
     room_parent: list[int] = [-1 for _ in layout.rooms]
+    room_parent_edge: list[int] = [-1 for _ in layout.rooms]
     room_depth: list[int] = [10**9 for _ in layout.rooms]
     if layout.rooms:
-        adjacency: list[list[int]] = [[] for _ in layout.rooms]
-        for a, b in layout.connections:
+        adjacency: list[list[tuple[int, int]]] = [[] for _ in layout.rooms]
+        for edge_idx, (a, b) in enumerate(layout.connections):
             if 0 <= a < len(adjacency) and 0 <= b < len(adjacency):
-                adjacency[a].append(b)
-                adjacency[b].append(a)
+                adjacency[a].append((b, edge_idx))
+                adjacency[b].append((a, edge_idx))
         queue: deque[int] = deque([0])
         seen = {0}
         room_depth[0] = 0
         while queue:
             node = queue.popleft()
-            for nxt in adjacency[node]:
+            for nxt, edge_idx in adjacency[node]:
                 if nxt in seen:
                     continue
                 seen.add(nxt)
                 room_parent[nxt] = node
+                room_parent_edge[nxt] = edge_idx
                 room_depth[nxt] = room_depth[node] + 1
                 queue.append(nxt)
 
@@ -7918,24 +7921,92 @@ def add_map_objects(
         base = math.degrees(math.atan2(ty - float(y), tx - float(x)))
         return int(round((base + 180.0 + rng.uniform(-60.0, 60.0)) % 360.0))
 
-    def expected_entry_target(room_idx: int) -> tuple[float, float] | None:
+    def expected_entry_targets(room_idx: int) -> tuple[tuple[float, float], ...] | None:
         if room_idx <= 0 or room_idx >= len(layout.rooms):
             return None
         parent_idx = room_parent[room_idx]
         if parent_idx < 0 or parent_idx >= len(layout.rooms):
             return None
         room = layout.rooms[room_idx]
+        parent_edge_idx = room_parent_edge[room_idx]
         parent_center = layout.rooms[parent_idx].center
+        if parent_edge_idx >= 0:
+            door_plans = [
+                plan
+                for plan in layout.sector_plans
+                if (
+                    plan.kind == "door"
+                    and plan.door_room == room_idx
+                    and plan.door_edge == parent_edge_idx
+                    and len(plan.polygon) >= 3
+                )
+            ]
+            if door_plans:
+                for plan in door_plans:
+                    points = [(float(px), float(py)) for px, py in plan.polygon]
+                    if len(points) < 2:
+                        continue
+                    # Use door slab's long axis (door width) to pick opposite
+                    # doorway boundaries. This avoids selecting the same jamb
+                    # pair (8-unit door thickness).
+                    best_axis = (1.0, 0.0)
+                    best_len_sq = -1.0
+                    for idx in range(len(points)):
+                        a = points[idx]
+                        b = points[(idx + 1) % len(points)]
+                        dx = b[0] - a[0]
+                        dy = b[1] - a[1]
+                        d2 = (dx * dx) + (dy * dy)
+                        if d2 > best_len_sq:
+                            best_len_sq = d2
+                            if d2 > 1.0e-9:
+                                inv = 1.0 / math.sqrt(d2)
+                                best_axis = (dx * inv, dy * inv)
+                    if best_len_sq <= 1.0e-9:
+                        continue
+
+                    projs = [((p[0] * best_axis[0]) + (p[1] * best_axis[1]), p) for p in points]
+                    min_proj = min(value for value, _ in projs)
+                    max_proj = max(value for value, _ in projs)
+                    tol = max(1.0e-6, math.sqrt(best_len_sq) * 0.02)
+                    min_group = [p for value, p in projs if value <= (min_proj + tol)]
+                    max_group = [p for value, p in projs if value >= (max_proj - tol)]
+                    if not min_group or not max_group:
+                        # Robust fallback: exact min/max projection representatives.
+                        min_p = min(projs, key=lambda item: item[0])[1]
+                        max_p = max(projs, key=lambda item: item[0])[1]
+                    else:
+                        min_p = (
+                            sum(p[0] for p in min_group) / float(len(min_group)),
+                            sum(p[1] for p in min_group) / float(len(min_group)),
+                        )
+                        max_p = (
+                            sum(p[0] for p in max_group) / float(len(max_group)),
+                            sum(p[1] for p in max_group) / float(len(max_group)),
+                        )
+                    if ((max_p[0] - min_p[0]) * (max_p[0] - min_p[0]) + (max_p[1] - min_p[1]) * (max_p[1] - min_p[1])) > 1.0e-6:
+                        return (min_p, max_p)
         parent_dir = v_norm(v_sub(parent_center, room.center))
         candidate_sides = layout.room_door_sides[room_idx] if room_idx < len(layout.room_door_sides) else ()
         if candidate_sides:
             best_side = max(candidate_sides, key=lambda side: v_dot(room_side_forward(room, side), parent_dir))
             outward = room_side_forward(room, best_side)
-            return (
-                room.center[0] + outward[0] * room.half_length,
-                room.center[1] + outward[1] * room.half_width,
+            if best_side in {"front", "back"}:
+                half_extent = room.half_length
+                side_axis = room.normal
+            else:
+                half_extent = room.half_width
+                side_axis = room.tangent
+            mid = (
+                room.center[0] + outward[0] * half_extent,
+                room.center[1] + outward[1] * half_extent,
             )
-        return parent_center
+            half_door = float(DOOR_NATIVE_WIDTH) * 0.5
+            return (
+                (mid[0] + side_axis[0] * half_door, mid[1] + side_axis[1] * half_door),
+                (mid[0] - side_axis[0] * half_door, mid[1] - side_axis[1] * half_door),
+            )
+        return (parent_center,)
 
     def place_thing_spaced(
         thing_type: int,
@@ -8096,10 +8167,35 @@ def add_map_objects(
         room: OrientedRoom,
         blocked: list[tuple[tuple[float, float], ...]],
         cover_polys: list[tuple[tuple[float, float], ...]],
-        entry_target: tuple[float, float] | None,
+        entry_targets: tuple[tuple[float, float], ...] | None,
         *,
         force_all_deaf: bool = False,
     ) -> None:
+        entry_points_world = tuple((float(tx), float(ty)) for tx, ty in (entry_targets or ()))
+        entry_points_local = tuple(
+            (
+                ((tx - room.center[0]) * room.tangent[0]) + ((ty - room.center[1]) * room.tangent[1]),
+                ((tx - room.center[0]) * room.normal[0]) + ((ty - room.center[1]) * room.normal[1]),
+            )
+            for tx, ty in entry_points_world
+        )
+        if entry_points_world:
+            inv = 1.0 / float(len(entry_points_world))
+            entry_focus_world = (
+                sum(p[0] for p in entry_points_world) * inv,
+                sum(p[1] for p in entry_points_world) * inv,
+            )
+        else:
+            entry_focus_world = None
+        if entry_points_local:
+            inv = 1.0 / float(len(entry_points_local))
+            entry_focus_local = (
+                sum(p[0] for p in entry_points_local) * inv,
+                sum(p[1] for p in entry_points_local) * inv,
+            )
+        else:
+            entry_focus_local = None
+
         def local_spawn_valid(lx: float, ly: float, edge_clearance_sq: float) -> bool:
             point = (lx, ly)
             if not point_in_room_local_shape(room, lx, ly):
@@ -8120,17 +8216,41 @@ def add_map_objects(
                 edge_clearance=monster_clearance,
             )
 
-        def random_point_behind_cover(monster_clearance: float) -> tuple[int, int]:
-            if not cover_polys or entry_target is None:
+        def hidden_from_entry_boundaries(lx: float, ly: float, monster_radius: float) -> bool:
+            if not cover_polys or not entry_points_local:
+                return True
+            center = (lx, ly)
+            visibility_radius = float(monster_radius) + (float(MONSTER_VISIBILITY_DIAMETER_MARGIN_UNITS) * 0.5)
+            for ex, ey in entry_points_local:
+                vx = lx - ex
+                vy = ly - ey
+                dist = math.hypot(vx, vy)
+                if dist <= 1.0e-6:
+                    return False
+                nx = -vy / dist
+                ny = vx / dist
+                samples = [center]
+                if visibility_radius > 0.0:
+                    # Diameter-aware visibility probes: center + both silhouette edges
+                    # perpendicular to the view ray from doorway boundary to spawn.
+                    samples.append((lx + nx * visibility_radius, ly + ny * visibility_radius))
+                    samples.append((lx - nx * visibility_radius, ly - ny * visibility_radius))
+                for sx, sy in samples:
+                    line_blocked = any(
+                        segment_intersects_polygon((ex, ey), (sx, sy), poly)
+                        for poly in cover_polys
+                        if len(poly) >= 3
+                    )
+                    if not line_blocked:
+                        return False
+            return True
+
+        def random_point_behind_cover(monster_clearance: float, monster_radius: float) -> tuple[int, int]:
+            if not cover_polys or entry_focus_local is None:
                 return room_monster_picker(monster_clearance)
 
             edge_clearance_sq = float(monster_clearance) * float(monster_clearance)
-
-            tx, ty = entry_target
-            dx = float(tx) - room.center[0]
-            dy = float(ty) - room.center[1]
-            entry_lx = (dx * room.tangent[0]) + (dy * room.tangent[1])
-            entry_ly = (dx * room.normal[0]) + (dy * room.normal[1])
+            entry_lx, entry_ly = entry_focus_local
 
             for _ in range(72):
                 poly = rng.choice(cover_polys)
@@ -8152,8 +8272,20 @@ def add_map_objects(
                 py = cy + (uy * rng.uniform(56.0, 120.0)) + (ux * rng.uniform(-40.0, 40.0))
                 if not local_spawn_valid(px, py, edge_clearance_sq):
                     continue
+                if not hidden_from_entry_boundaries(px, py, monster_radius):
+                    continue
                 wx, wy = local_to_world(room.center, room.tangent, room.normal, px, py)
                 return int(round(wx)), int(round(wy))
+
+            if entry_points_local and cover_polys:
+                for _ in range(96):
+                    wx, wy = room_monster_picker(monster_clearance)
+                    dx = float(wx) - room.center[0]
+                    dy = float(wy) - room.center[1]
+                    lx = (dx * room.tangent[0]) + (dy * room.tangent[1])
+                    ly = (dx * room.normal[0]) + (dy * room.normal[1])
+                    if hidden_from_entry_boundaries(lx, ly, monster_radius):
+                        return wx, wy
 
             return room_monster_picker(monster_clearance)
 
@@ -8169,12 +8301,15 @@ def add_map_objects(
                 monster_rng,
             )
             monster_clearance = monster_spawn_clearance_units(monster_type)
+            monster_radius = monster_collision_radius_units(monster_type)
+            if monster_radius is None:
+                monster_radius = max(0.0, monster_clearance - (float(MONSTER_GAP_MARGIN_UNITS) * 0.5))
             angle_picker = None
-            if entry_target is not None:
-                tx, ty = entry_target
+            if entry_focus_world is not None:
+                tx, ty = entry_focus_world
                 angle_picker = lambda x, y, tx=tx, ty=ty: facing_angle_toward(x, y, tx, ty, jitter=45.0)
             point_picker = (
-                (lambda clearance=monster_clearance: random_point_behind_cover(clearance))
+                (lambda clearance=monster_clearance, radius=monster_radius: random_point_behind_cover(clearance, radius))
                 if is_deaf
                 else (lambda clearance=monster_clearance: room_monster_picker(clearance))
             )
@@ -8356,15 +8491,15 @@ def add_map_objects(
         blocked = room_item_blocked(room_idx)
         cover_polys = list((blocked_local_polys_by_room or {}).get(room_idx, []))
         item_blocked = room_item_blocked(room_idx)
-        entry_target = expected_entry_target(room_idx)
-        if entry_target is None and room_idx == 0:
-            entry_target = (float(start_x), float(start_y))
+        entry_targets = expected_entry_targets(room_idx)
+        if entry_targets is None and room_idx == 0:
+            entry_targets = ((float(start_x), float(start_y)),)
         add_map_monsters(
             room_idx,
             room,
             blocked,
             cover_polys,
-            entry_target,
+            entry_targets,
         )
         add_map_pickups(room_idx, item_blocked)
         add_map_decorations(room_idx, room, item_blocked)
@@ -8822,6 +8957,23 @@ def segments_intersect(
         return True
     if abs(o4) <= eps and on_segment(b1, b2, a2):
         return True
+    return False
+
+
+def segment_intersects_polygon(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    polygon: tuple[tuple[float, float], ...],
+) -> bool:
+    if len(polygon) < 3:
+        return False
+    if point_in_polygon(a, polygon) or point_in_polygon(b, polygon):
+        return True
+    for idx in range(len(polygon)):
+        p0 = polygon[idx]
+        p1 = polygon[(idx + 1) % len(polygon)]
+        if segments_intersect(a, b, p0, p1):
+            return True
     return False
 
 
