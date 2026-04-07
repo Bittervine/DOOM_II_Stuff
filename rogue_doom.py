@@ -638,14 +638,14 @@ TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
 
 # Future treasure-room variants can be added here as absolute replacement chances.
 TREASURE_ROOM_VARIANT_CHANCES: tuple[tuple[str, float], ...] = (
-    ("TheCathedral", 0.05),
-    ("TheRocketArena", 0.05),
-    ("ThePit", 0.05),
-    ("TheSupplyRoom", 0.05),
-    ("TheThroneRoom", 0.05),
-    ("TheHexagon", 0.05),
-    ("TheWolfensteinRoom", 0.05),
-    ("TheColiseum", 0.05),
+    ("TheCathedral", 0.1),
+    ("TheRocketArena", 0.1),
+    ("ThePit", 0.1),
+    ("TheSupplyRoom", 0.3),
+    ("TheThroneRoom", 0.1),
+    ("TheHexagon", 0.1),
+    ("TheWolfensteinRoom", 0.1),
+    ("TheColiseum", 0.1),
 )
 CATHEDRAL_FLOOR_TEXTURE = "BLOOD1"
 THRONE_WALL_TEXTURE = "GSTONE2"
@@ -3860,7 +3860,7 @@ def apply_wolfenstein_room_wall_treatment(
         room = layout.rooms[room_idx]
         wall_tex_w = float(max(64, texture_width_for_alignment(WOLFENSTEIN_WALL_TEXTURE)))
         inset_panel_width = float(max(128, texture_width_for_alignment(WOLFENSTEIN_INSET_TEXTURE)))
-        candidates: list[tuple[str, float, int]] = []
+        candidates: list[tuple[str, float, float, int]] = []
 
         def world_to_local(wx: float, wy: float) -> tuple[float, float]:
             rel = (wx - room.center[0], wy - room.center[1])
@@ -3902,15 +3902,17 @@ def apply_wolfenstein_room_wall_treatment(
             mlx, mly = world_to_local(mx, my)
             wall_side = classify_side(mlx, mly)
             if wall_side in {"front", "back"}:
-                along = min(ly1, ly2)
+                along_center = (lx1 + lx2) * 0.5
+                along_for_align = min(lx1, lx2)
             else:
-                along = min(lx1, lx2)
-            aligned_off = int(round(along)) % int(wall_tex_w)
+                along_center = (ly1 + ly2) * 0.5
+                along_for_align = min(ly1, ly2)
+            aligned_off = int(round(along_for_align)) % int(wall_tex_w)
             side.offset_x = aligned_off
             side.offset_x_top = aligned_off
             side.offset_x_bottom = aligned_off
             side.offset_x_middle = aligned_off
-            candidates.append((wall_side, line_len, line_idx))
+            candidates.append((wall_side, line_len, along_center, line_idx))
 
         if not candidates:
             continue
@@ -3923,15 +3925,33 @@ def apply_wolfenstein_room_wall_treatment(
             "left": "right",
             "right": "left",
         }.get(door_side, "front")
+        exact_center_candidates = [
+            (abs(along_center), line_len, line_idx)
+            for wall_side, line_len, along_center, line_idx in candidates
+            if (
+                wall_side == opposite_side
+                and abs(line_len - inset_panel_width) <= 8.0
+            )
+        ]
+        if exact_center_candidates:
+            _center_dist, _best_len, best_line_idx = min(
+                exact_center_candidates, key=lambda item: (item[0], item[1])
+            )
+            set_line_middle_texture(best_line_idx, room_sector, WOLFENSTEIN_INSET_TEXTURE)
+            align_wolf_wall_chains(room, room_sector)
+            continue
+
         wall_candidates = [
-            (line_len, line_idx)
-            for wall_side, line_len, line_idx in candidates
+            (abs(along_center), line_len, line_idx)
+            for wall_side, line_len, along_center, line_idx in candidates
             if wall_side == opposite_side and line_len >= (inset_panel_width + 24.0)
         ]
         if not wall_candidates:
             align_wolf_wall_chains(room, room_sector)
             continue
-        _best_len, best_line_idx = max(wall_candidates, key=lambda item: item[0])
+        _center_dist, _best_len, best_line_idx = min(
+            wall_candidates, key=lambda item: (item[0], -item[1])
+        )
         panel_idx = split_one_sided_line_for_center_panel(
             map_data,
             best_line_idx,
@@ -5530,6 +5550,37 @@ def room_polygon_with_door_splits(
 ) -> tuple[tuple[float, float], ...]:
     if room.special_room_variant in {"TheCathedral", "TheThroneRoom"}:
         split_segments = [segment for segments in side_doors.values() for segment in segments]
+        return split_polygon_edges_with_points(tuple(room.polygon), split_segments)
+
+    if room.special_room_variant == "TheWolfensteinRoom":
+        split_segments = [segment for segments in side_doors.values() for segment in segments]
+
+        side_order = tuple(sorted(side_doors.keys()))
+        door_side = side_order[0] if side_order else "back"
+        opposite_side = {
+            "front": "back",
+            "back": "front",
+            "left": "right",
+            "right": "left",
+        }.get(door_side, "front")
+
+        side_seg = room_side_effective_segment(room, opposite_side)
+        if side_seg is not None:
+            a, b = side_seg
+            edge = v_sub(b, a)
+            edge_len = v_len(edge)
+            inset_width = float(max(128, texture_width_for_alignment(WOLFENSTEIN_INSET_TEXTURE)))
+            if edge_len >= inset_width + 24.0:
+                edge_dir = v_scale(edge, 1.0 / max(edge_len, 1.0e-9))
+                start_d = (edge_len - inset_width) * 0.5
+                end_d = start_d + inset_width
+                split_segments.append(
+                    (
+                        v_add(a, v_scale(edge_dir, start_d)),
+                        v_add(a, v_scale(edge_dir, end_d)),
+                    )
+                )
+
         return split_polygon_edges_with_points(tuple(room.polygon), split_segments)
 
     corners = {
