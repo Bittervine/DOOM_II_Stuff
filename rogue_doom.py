@@ -40,7 +40,7 @@ except Exception:
     plt = None
 
 ENABLE_PLOTS = False
-DEBUG = 1
+DEBUG = 0
 VERBOSE_TRACE_LOG = False
 TRACE_LOG_FILENAME = "rogue_doom.log"
 TRACE_MAP_START_TIME: float | None = None
@@ -2707,132 +2707,6 @@ def assign_door_actions(
                 continue
             # Doom namespace DR door specials: repeatable use-open/wait/close.
             line.special = door_special
-        if lock_color:
-            marker_tex = LOCK_FRAME_TEXTURE_BY_COLOR.get(lock_color)
-            if marker_tex:
-                marker_strip_max_len = 12.5
-                # Identify jamb lines: one-sided, short, adjacent to door sector, not the doorface
-                for idx, line in enumerate(map_data.linedefs):
-                    # Only one-sided lines
-                    if not (line.left < 0 <= line.right or line.right < 0 <= line.left):
-                        continue
-                    # Must be short (jamb strip)
-                    v1 = map_data.vertices[line.v1]
-                    v2 = map_data.vertices[line.v2]
-                    dx = float(v2.x - v1.x)
-                    dy = float(v2.y - v1.y)
-                    seg_len = math.hypot(dx, dy)
-                    if seg_len > marker_strip_max_len:
-                        continue
-                    # Must be adjacent to the door sector
-                    if line.right >= 0 and map_data.sidedefs[line.right].sector == door_sector:
-                        side_idx = int(line.right)
-                        other_sector = map_data.sidedefs[line.left].sector if line.left >= 0 else -1
-                    elif line.left >= 0 and map_data.sidedefs[line.left].sector == door_sector:
-                        side_idx = int(line.left)
-                        other_sector = map_data.sidedefs[line.right].sector if line.right >= 0 else -1
-                    else:
-                        continue
-                    # Do not touch the doorface (which is always two-sided and much longer)
-                    # Apply marker texture to jamb
-                    side = map_data.sidedefs[side_idx]
-                    side.texture_top = "-"
-                    side.texture_middle = marker_tex
-                    side.texture_bottom = "-"
-                    side.offset_y = 0
-                    line.flags &= ~0x0008
-                    line.flags |= 0x0010
-
-                # Restore lintel framing on the non-door side for colored doors
-                def infer_sector_base_wall_texture(sector_idx: int) -> str:
-                    for idx2, line2 in enumerate(map_data.linedefs):
-                        if not (0 <= line2.v1 < len(map_data.vertices) and 0 <= line2.v2 < len(map_data.vertices)):
-                            continue
-                        side_idx2 = -1
-                        if line2.right >= 0 and map_data.sidedefs[line2.right].sector == sector_idx:
-                            side_idx2 = int(line2.right)
-                        elif line2.left >= 0 and map_data.sidedefs[line2.left].sector == sector_idx:
-                            side_idx2 = int(line2.left)
-                        if side_idx2 < 0:
-                            continue
-                        side2 = map_data.sidedefs[side_idx2]
-                        for tex in (side2.texture_middle, side2.texture_top, side2.texture_bottom):
-                            if tex != "-" and tex not in {marker_tex, DOOR_TRACK_TEXTURE, door_texture}:
-                                return tex
-                    return DOORFRAME_BASE_TEXTURE
-
-                for line_idx in sorted(line_indices):
-                    if not (0 <= line_idx < len(map_data.linedefs)):
-                        continue
-                    line = map_data.linedefs[line_idx]
-                    if line.left < 0 or line.right < 0:
-                        continue
-                    if not (0 <= line.right < len(map_data.sidedefs) and 0 <= line.left < len(map_data.sidedefs)):
-                        continue
-                    right_sector = int(map_data.sidedefs[line.right].sector)
-                    left_sector = int(map_data.sidedefs[line.left].sector)
-                    if door_sector not in {right_sector, left_sector}:
-                        continue
-                    if right_sector == door_sector and left_sector != door_sector:
-                        non_door_side_idx = int(line.left)
-                        non_door_sector = left_sector
-                    elif left_sector == door_sector and right_sector != door_sector:
-                        non_door_side_idx = int(line.right)
-                        non_door_sector = right_sector
-                    else:
-                        continue
-                    base_tex = infer_sector_base_wall_texture(non_door_sector)
-                    non_door_side = map_data.sidedefs[non_door_side_idx]
-                    non_door_side.texture_top = base_tex
-                    non_door_side.texture_middle = "-"
-                    non_door_side.texture_bottom = base_tex
-
-                def infer_sector_base_wall_texture(sector_idx: int) -> str:
-                    for idx2, line2 in enumerate(map_data.linedefs):
-                        if not (0 <= line2.v1 < len(map_data.vertices) and 0 <= line2.v2 < len(map_data.vertices)):
-                            continue
-                        side_idx2 = -1
-                        if line2.right >= 0 and map_data.sidedefs[line2.right].sector == sector_idx:
-                            side_idx2 = int(line2.right)
-                        elif line2.left >= 0 and map_data.sidedefs[line2.left].sector == sector_idx:
-                            side_idx2 = int(line2.left)
-                        if side_idx2 < 0:
-                            continue
-                        side2 = map_data.sidedefs[side_idx2]
-                        for tex in (side2.texture_middle, side2.texture_top, side2.texture_bottom):
-                            if tex != "-" and tex not in {marker_tex, DOOR_TRACK_TEXTURE, door_texture}:
-                                return tex
-                    return DOORFRAME_BASE_TEXTURE
-
-                # Restore lintel framing on the non-door side for colored doors.
-                for line_idx in sorted(line_indices):
-                    if not (0 <= line_idx < len(map_data.linedefs)):
-                        continue
-                    line = map_data.linedefs[line_idx]
-                    if line.left < 0 or line.right < 0:
-                        continue
-                    if not (0 <= line.right < len(map_data.sidedefs) and 0 <= line.left < len(map_data.sidedefs)):
-                        continue
-                    right_sector = int(map_data.sidedefs[line.right].sector)
-                    left_sector = int(map_data.sidedefs[line.left].sector)
-                    if door_sector not in {right_sector, left_sector}:
-                        continue
-                    if right_sector == door_sector and left_sector != door_sector:
-                        non_door_side_idx = int(line.left)
-                        non_door_sector = left_sector
-                    elif left_sector == door_sector and right_sector != door_sector:
-                        non_door_side_idx = int(line.right)
-                        non_door_sector = right_sector
-                    else:
-                        continue
-                    base_tex = infer_sector_base_wall_texture(non_door_sector)
-                    non_door_side = map_data.sidedefs[non_door_side_idx]
-                    non_door_side.texture_top = base_tex
-                    non_door_side.texture_middle = "-"
-                    non_door_side.texture_bottom = base_tex
-
-        # Intentionally do not auto-convert nearby short lines to DOORTRAK here.
-        # We want side-gap geometry beside the 128-wide slab to remain visible.
 
 
 def split_one_sided_line_for_center_panel(
@@ -14636,12 +14510,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Skip post-build zdbsp node pass (ZNODES).",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (sets DEBUG=1).",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    global DEBUG_SAFE_MAP03
+    global DEBUG, DEBUG_SAFE_MAP03
+    if getattr(args, "debug", False):
+        DEBUG = 1
     DEBUG_SAFE_MAP03 = bool(args.safe_map03)
     script_dir = Path(__file__).resolve().parent
     output = resolve_path(args.output, script_dir).resolve()
