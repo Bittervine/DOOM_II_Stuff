@@ -129,7 +129,7 @@ PUDDLE_SECTOR_PROBABILITY = 0.10
 KILLING_POOL_PROBABILITY = 0.34
 KILLING_POOL_DEPTH_UNITS = 25  # Just above Doom's 24-unit step-up limit.
 KILLING_POOL_FLOOR_TEXTURE = "DBRAIN1"
-DOOR_LINTEL_STRIP_DEPTH_UNITS = 1.0
+DOOR_LINTEL_STRIP_DEPTH_UNITS = 1.25 # Will be rounded to 1 (margin to avoid rounding to 0 when int snapping)
 DOOR_LINTEL_CEILING_DROP_UNITS = 13
 DOOR_LINTEL_SIDE_EXTEND_UNITS = 0.0
 DOOR_TRACK_TEXTURE = "DOORTRAK"
@@ -5355,7 +5355,7 @@ def build_recess_endpoint(
 
     recess_front_depth = 24.0
     # Keep lintel/jamb strip width unchanged, but make the strip depth minimal.
-    micro_alcove_depth = 1.0
+    micro_alcove_depth = DOOR_LINTEL_STRIP_DEPTH_UNITS
     door_inner_depth = recess_front_depth + micro_alcove_depth
     door_outer_depth = door_inner_depth + float(DOOR_THICKNESS)
     d24_l96 = pt(recess_front_depth, 96.0)
