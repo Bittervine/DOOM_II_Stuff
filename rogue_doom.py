@@ -3838,6 +3838,13 @@ def apply_wolfenstein_room_wall_treatment(
                 for idx in chain:
                     side_idx, _line_idx, _v_start, _v_end, seg_len = segments[idx]
                     side = map_data.sidedefs[side_idx]
+                    tex_name = str(side.texture_middle).strip().upper()
+                    if tex_name == WOLFENSTEIN_INSET_TEXTURE:
+                        side.offset_x = 0
+                        side.offset_x_top = 0
+                        side.offset_x_bottom = 0
+                        side.offset_x_middle = 0
+                        continue
                     tex_w = max(1, texture_width_for_alignment(side.texture_middle))
                     aligned = int(round(running)) % int(tex_w)
                     side.offset_x = aligned
@@ -3947,7 +3954,9 @@ def apply_special_room_wall_treatments(
     apply_throne_room_wall_treatment(map_data, layout, room_sector_lookup)
     apply_hexagon_wall_treatment(map_data, layout, room_sector_lookup)
     apply_coliseum_wall_treatment(map_data, layout, room_sector_lookup)
-    apply_wolfenstein_room_wall_treatment(map_data, layout, room_sector_lookup)
+    # Defer Wolfenstein texturing until the late post-sanitize pass.
+    # Final geometry cleanup can still split one-sided wall lines.
+    # apply_wolfenstein_room_wall_treatment(map_data, layout, room_sector_lookup)
 
 
 def v_add(a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:
@@ -12659,21 +12668,17 @@ def align_door_side_wall_offsets(map_data: MutableMap) -> int:
                 cur_side = map_data.sidedefs[cur_edge.side_idx]
                 prev_is_wolf = has_wolf_texture(prev_side)
                 cur_is_wolf = has_wolf_texture(cur_side)
+
                 if prev_is_wolf or cur_is_wolf:
-                    # Keep Wolfenstein chains aligned in the shared final pass.
-                    # When both edges are Wolf walls, align by edge-length carry;
-                    # this preserves continuity across ZZWOLF1/ZZWOLF2 transitions.
-                    if not (prev_is_wolf and cur_is_wolf):
-                        continue
-                    target_tex = preferred_wall_texture(cur_side)
-                    if not target_tex:
-                        continue
-                    tex_width = texture_width_for_alignment(target_tex)
-                    desired_raw = int(prev_side.offset_x) + int(prev_edge.length)
-                    desired = int(desired_raw % tex_width)
-                    if int(cur_side.offset_x) != desired:
-                        cur_side.offset_x = desired
-                        changed += 1
+                    # Wolfenstein room walls are already aligned in
+                    # apply_wolfenstein_room_wall_treatment(), which keeps
+                    # ZZWOLF2 inset panels pinned to offset 0. Do not
+                    # override those authored offsets here.
+                    continue
+
+                if has_marker(cur_side):
+                    # Keep lock marker strips exactly where authored.
+                    continue
                     continue
                 if has_marker(cur_side):
                     # Keep lock marker strips exactly where authored.
@@ -14332,6 +14337,14 @@ def build_pwad(output: Path, specs: list[EpisodeMapSpec], *, build_znodes: bool 
                 f"DOOR_JAMB_TRACK_POST_SANITIZE map={spec.output_map} "
                 f"adjusted_sidedefs={post_sanitize_jamb_track}"
             )
+        # Apply Wolfenstein wall styling only after sanitize/final geometry
+        # cleanup so centered inserts and alignment are authored against the
+        # final one-sided wall lines.
+        apply_wolfenstein_room_wall_treatment(
+            map_data,
+            layout,
+            room_sector_lookup,
+        )
         post_sanitize_halign = align_door_side_wall_offsets(map_data)
         if post_sanitize_halign:
             sanitize_stats["post_sanitize_texture_halign"] = post_sanitize_halign
