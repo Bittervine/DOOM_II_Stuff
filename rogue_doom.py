@@ -664,6 +664,11 @@ COLISEUM_WALL_TEXTURE = "MARBGRAY"
 PIT_WALL_TEXTURE = "ASHWALL2"
 KEY_AND_TREASURE_PILLAR_SIDE_TEXTURE = "MARBGRAY"
 KEY_AND_TREASURE_PILLAR_TOP_TEXTURE = "ASHWALL6"
+KEY_AND_TREASURE_PILLAR_HEIGHT_UNITS = 25
+KEY_AND_TREASURE_PILLAR_ITEM_CLEARANCE_UNITS = 4.0
+KEY_AND_TREASURE_PILLAR_STEPS = 16
+KEY_AND_TREASURE_PILLAR_CELL_RADIUS = 0.28
+
  
 ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
     MAP_TIER_START: (
@@ -6722,10 +6727,18 @@ def generate_poly_layout(
         elif end_has_door and rng.random() < NON_COLORED_DOOR_REMOVAL_CHANCE:
             end_has_door = False
         # Selected special room entries are intentionally doorless.
-        if special_room_variants_by_room.get(room_a_idx) in {"TheCathedral", "TheThroneRoom", "TheWolfensteinRoom"}:
+        doorless_special_variants = {"TheCathedral", "TheThroneRoom", "TheWolfensteinRoom"}
+        start_is_doorless_special = special_room_variants_by_room.get(room_a_idx) in doorless_special_variants
+        end_is_doorless_special = special_room_variants_by_room.get(room_b_idx) in doorless_special_variants
+        if start_is_doorless_special:
             start_has_door = False
-        if special_room_variants_by_room.get(room_b_idx) in {"TheCathedral", "TheThroneRoom", "TheWolfensteinRoom"}:
+        if end_is_doorless_special:
             end_has_door = False
+        # If one end is a doorless special room, force a door on the opposite end.
+        if start_is_doorless_special and not end_is_doorless_special:
+            end_has_door = True
+        elif end_is_doorless_special and not start_is_doorless_special:
+            start_has_door = True
         if room_a_idx == 0 and idx == 0 and not start_has_door and not end_has_door:
             start_has_door = True
         wall_tex = texture_from_palette(
@@ -7328,6 +7341,17 @@ def poly_layout_to_map(
             )
             if line_idx >= 0:
                 line = map_data.linedefs[line_idx]
+                corridor_step_boundary = (
+                    a_kind == "corridor"
+                    and b_kind == "corridor"
+                    and int(map_data.sectors[a[0]].ceiling_height) != int(map_data.sectors[b[0]].ceiling_height)
+                )
+                if corridor_step_boundary:
+                    # Keep corridor step "ceiling-side" walls visually tied to the ceiling treatment.
+                    if line.right >= 0:
+                        map_data.sidedefs[line.right].texture_top = map_data.sectors[a[0]].ceiling_texture
+                    if line.left >= 0:
+                        map_data.sidedefs[line.left].texture_top = map_data.sectors[b[0]].ceiling_texture
                 if lintel_boundary or door_gap_extension_boundary:
                     # Keep upper textures top-pegged so they stay aligned with the tops
                     # of neighboring room/corridor wall textures. This also applies
@@ -9084,8 +9108,9 @@ def add_room_internal_sectors(
             cy: float,
         ) -> list[tuple[float, float]]:
             if shape == "circle":
-                radius = cell_size * 0.42
-                steps = 16
+                # Narrow key/reward pillar with smoother circular silhouette.
+                radius = cell_size * KEY_AND_TREASURE_PILLAR_CELL_RADIUS
+                steps = KEY_AND_TREASURE_PILLAR_STEPS
                 return [
                     (
                         cx + (math.cos((2.0 * math.pi * idx) / float(steps)) * radius),
@@ -9152,13 +9177,14 @@ def add_room_internal_sectors(
                 if len(world_poly) < 3:
                     continue
                 final_world_poly_i = normalize_plan_polygon(tuple(world_poly))
+                forced_min_edge_units = 2.0 if shape == "circle" else float(INTERNAL_SECTOR_MIN_EDGE_UNITS)
                 final_world_poly_i = collapse_short_polygon_edges(
                     final_world_poly_i,
-                    min_edge_units=float(INTERNAL_SECTOR_MIN_EDGE_UNITS),
+                    min_edge_units=forced_min_edge_units,
                 )
                 if len(final_world_poly_i) < 3:
                     continue
-                if abs(signed_area(final_world_poly_i)) < 2048.0:
+                if shape != "circle" and abs(signed_area(final_world_poly_i)) < 2048.0:
                     continue
 
                 vertex_indices_raw = [
@@ -9196,13 +9222,15 @@ def add_room_internal_sectors(
                 if shape == "circle":
                     forced_floor_tex = KEY_AND_TREASURE_PILLAR_TOP_TEXTURE
                     forced_wall_tex = KEY_AND_TREASURE_PILLAR_SIDE_TEXTURE
+                    forced_floor_h = min(room_ceiling, room_floor + KEY_AND_TREASURE_PILLAR_HEIGHT_UNITS)
                 else:
                     forced_floor_tex = theme.transition_floor
                     forced_wall_tex = theme.transition_wall_textures[0]
+                    forced_floor_h = min(room_ceiling, room_floor + 24)
 
                 detail_sector = add_sector(
                     map_data,
-                    floor_height=min(room_ceiling, room_floor + 24),
+                    floor_height=forced_floor_h,
                     ceiling_height=room_ceiling,
                     floor_texture=forced_floor_tex,
                     ceiling_texture=theme.ceiling_flat,
@@ -10779,7 +10807,7 @@ def add_map_objects(
                 flags=7,
                 attempts=1,
                 force=True,
-                min_spacing_units=16.0,
+                min_spacing_units=KEY_AND_TREASURE_PILLAR_ITEM_CLEARANCE_UNITS,
             )
             if placed_on_platform:
                 return
@@ -12095,7 +12123,7 @@ def add_map_objects(
                     flags=7,
                     attempts=1,
                     force=True,
-                    min_spacing_units=16.0,
+                    min_spacing_units=KEY_AND_TREASURE_PILLAR_ITEM_CLEARANCE_UNITS,
                 ):
                     continue
         blocked = room_item_blocked(room_idx)
