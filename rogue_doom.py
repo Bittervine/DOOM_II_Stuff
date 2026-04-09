@@ -668,6 +668,8 @@ KEY_AND_TREASURE_PILLAR_HEIGHT_UNITS = 25
 KEY_AND_TREASURE_PILLAR_ITEM_CLEARANCE_UNITS = 4.0
 KEY_AND_TREASURE_PILLAR_STEPS = 16
 KEY_AND_TREASURE_PILLAR_CELL_RADIUS = 0.28
+KEY_AND_TREASURE_PILLAR_USED_FOR_KEYS = False
+KEY_AND_TREASURE_PILLAR_USED_FOR_TREASURES = True
 
  
 ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
@@ -7677,9 +7679,13 @@ def add_room_internal_sectors(
         if 0 <= int(idx) < len(layout.rooms)
     }
     forced_reward_platform_shape: str | None = None
-    if room_idx == treasure_room_idx and room.special_room_variant is None:
+    if (
+        KEY_AND_TREASURE_PILLAR_USED_FOR_TREASURES
+        and room_idx == treasure_room_idx
+        and room.special_room_variant is None
+    ):
         forced_reward_platform_shape = "circle"
-    elif room_idx in key_room_indices:
+    elif KEY_AND_TREASURE_PILLAR_USED_FOR_KEYS and room_idx in key_room_indices:
         forced_reward_platform_shape = "circle"
     elif room.special_room_variant == "TheTriangle":
         forced_reward_platform_shape = "triangle"
@@ -10630,7 +10636,7 @@ def add_map_objects(
             edge_clearance_sq = float(monster_clearance) * float(monster_clearance)
             entry_lx, entry_ly = entry_focus_local
 
-            for _ in range(72):
+            for i in range(72):
                 poly = rng.choice(cover_polys)
                 if len(poly) < 3:
                     continue
@@ -10647,10 +10653,8 @@ def add_map_objects(
                     ux = vx / mag
                     uy = vy / mag
                 # Keep "behind cover" intent, but often allow a further stand-off
-                # to avoid always looking nose-to-obstacle.
-                forward_offset = rng.uniform(56.0, 120.0)
-                if rng.random() < 0.70:
-                    forward_offset += rng.uniform(0.0, 128.0)
+                # to avoid always looking nose-to-obstacle.                
+                forward_offset = rng.uniform(56.0, 300.0*i/72.0)
                 lateral_offset = rng.uniform(-40.0, 40.0)
                 px = cx + (ux * forward_offset) + ((-uy) * lateral_offset)
                 py = cy + (uy * forward_offset) + (ux * lateral_offset)
@@ -10798,7 +10802,11 @@ def add_map_objects(
 
     def place_key_guaranteed(room_idx: int, thing_type: int) -> None:
         room = layout.rooms[room_idx]
-        platform_center = center_platform_world_point(room_idx)
+        platform_center = (
+            center_platform_world_point(room_idx)
+            if KEY_AND_TREASURE_PILLAR_USED_FOR_KEYS
+            else None
+        )
         if platform_center is not None:
             pcx, pcy = platform_center
             placed_on_platform = place_thing_spaced(
@@ -12100,7 +12108,7 @@ def add_map_objects(
             continue
         if variant_name is None:
             reward_platform_polys = list((platform_local_polys_by_room or {}).get(room_idx, []))
-            if reward_platform_polys:
+            if KEY_AND_TREASURE_PILLAR_USED_FOR_TREASURES and reward_platform_polys:
                 # The forced reward platform is center-biased and placed first.
                 reward_poly = min(
                     reward_platform_polys,
