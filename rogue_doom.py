@@ -638,20 +638,23 @@ TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
 
 # Future treasure-room variants can be added here as absolute replacement chances.
 TREASURE_ROOM_VARIANT_CHANCES: tuple[tuple[str, float], ...] = (
-    ("TheCathedral", 0.05),
-    ("TheRocketArena", 0.05),
-    ("ThePit", 0.05),
-    ("TheSupplyRoom", 0.05),
-    ("TheThroneRoom", 0.05),
-    ("TheHexagon", 0.05),
-    ("TheWolfensteinRoom", 0.05),
-    ("TheColiseum", 0.05),
-    ("TheTriangle", 0.05),
-    ("TheCutCornerRoom", 0.05),
+    ("TheCathedral", 0.03),
+    ("TheRocketArena", 0.03),
+    ("ThePit", 0.03),
+    ("TheSupplyRoom", 0.03),
+    ("TheThroneRoom", 0.03),
+    ("TheBarrelRoom", 0.03),
+    ("TheBlackboxRoom", 0.03),
+    ("TheHexagon", 0.03),
+    ("TheWolfensteinRoom", 0.03),
+    ("TheColiseum", 0.03),
+    ("TheTriangle", 0.03),
+    ("TheCutCornerRoom", 0.03),
 )
 CATHEDRAL_FLOOR_TEXTURE = "BLOOD1"
 THRONE_WALL_TEXTURE = "GSTONE2"
 THRONE_INSET_TEXTURE = "GSTFONT2"
+THRONE_CHAIR_WALL_TEXTURE = "STONE6"
 SUPPLY_WALL_TEXTURE = "BRICK6"
 SUPPLY_INSET_TEXTURE = "BRICK8"
 BALCONY_WALL_TEXTURE = "SUPPORT3"
@@ -662,6 +665,12 @@ WOLFENSTEIN_INSET_TEXTURE = "ZZWOLF2"
 WOLFENSTEIN_SS_THING_TYPE = 84
 COLISEUM_WALL_TEXTURE = "MARBGRAY"
 PIT_WALL_TEXTURE = "ASHWALL2"
+THRONE_ROOM_CORPSE_THING_TYPE = 22  # Dead Cacodemon (closest vanilla corpse stand-in).
+THRONE_ROOM_CORPSE_BLOOD_THING_TYPE = 24
+BLACKBOX_CUBE_WALL_TEXTURE = "BLAKWAL2"
+BLACKBOX_CUBE_TOP_TEXTURE = "CEIL5_2"
+BLACKBOX_PILLAR_WALL_TEXTURE = "SUPPORT3"
+BLACKBOX_PILLAR_TOP_TEXTURE = "FLOOR5_1"
 KEY_AND_TREASURE_PILLAR_SIDE_TEXTURE = "MARBGRAY"
 KEY_AND_TREASURE_PILLAR_TOP_TEXTURE = "ASHWALL6"
 KEY_AND_TREASURE_PILLAR_HEIGHT_UNITS = 25
@@ -1296,20 +1305,10 @@ def treasure_room_reward_for_map(map_num: int, rng: random.Random) -> int:
 def treasure_room_variant_for_map(map_name: str, rng: random.Random) -> str | None:
     map_id = str(map_name).strip().upper()
     if DEBUG:
-        forced_variant = {
-            "MAP01": "TheCathedral",
-            "MAP02": "TheRocketArena",
-            "MAP03": "ThePit",
-            "MAP04": "TheSupplyRoom",
-            "MAP05": "TheThroneRoom",
-            "MAP06": "TheHexagon",
-            "MAP07": "TheWolfensteinRoom",
-            "MAP08": "TheColiseum",
-            "MAP09": "TheTriangle",
-            "MAP10": "TheCutCornerRoom",
-        }.get(map_id)
-        if forced_variant:
-            return forced_variant
+        map_num = map_number_from_name(map_id)
+        ordered_variants = [str(name) for name, chance in TREASURE_ROOM_VARIANT_CHANCES if float(chance) > 0.0]
+        if map_num is not None and 1 <= map_num <= len(ordered_variants):
+            return ordered_variants[map_num - 1]
     if not TREASURE_ROOM_VARIANT_CHANCES:
         return None
     roll = rng.random()
@@ -3541,34 +3540,8 @@ def apply_pit_wall_treatment(
     layout: PolyLayout,
     room_sector_lookup: dict[int, int],
 ) -> None:
-    variant_by_room = {room_idx: name for room_idx, name in layout.special_room_variants}
-    pit_rooms = [room_idx for room_idx, name in variant_by_room.items() if name == "ThePit"]
-    if not pit_rooms:
-        return
-
-    def one_sided_sector_ref(line: Linedef, sector_idx: int) -> int | None:
-        if 0 <= line.right < len(map_data.sidedefs):
-            right_sec = map_data.sidedefs[line.right].sector
-            if right_sec == sector_idx and line.left < 0:
-                return line.right
-        if 0 <= line.left < len(map_data.sidedefs):
-            left_sec = map_data.sidedefs[line.left].sector
-            if left_sec == sector_idx and line.right < 0:
-                return line.left
-        return None
-
-    for room_idx in pit_rooms:
-        room_sector = room_sector_lookup.get(room_idx)
-        if room_sector is None:
-            continue
-        for line in map_data.linedefs:
-            side_idx = one_sided_sector_ref(line, room_sector)
-            if side_idx is None:
-                continue
-            side = map_data.sidedefs[side_idx]
-            side.texture_middle = PIT_WALL_TEXTURE
-            side.texture_top = "-"
-            side.texture_bottom = "-"
+    # Keep ThePit on the normal wall-planning path; do not overwrite wall textures.
+    return
 
 
 def apply_throne_room_wall_treatment(
@@ -4125,6 +4098,43 @@ def throne_room_profile_from_half_sizes(half_length: float, half_width: float) -
     }
 
 
+def throne_room_throne_layout_from_half_sizes(half_length: float, half_width: float) -> dict[str, float]:
+    """Return local-space throne geometry anchors for TheThroneRoom."""
+    profile = throne_room_profile_from_half_sizes(half_length, half_width)
+    apse_radius = profile["apse_radius"]
+    # Requested: throne footprint at ~50% scale, but keep strong vertical presence.
+    seat_half = max(28.0, min(37.0, apse_radius * 0.17))
+    arm_half_y = max(8.0, min(12.0, seat_half * 0.28))
+    back_half_x = max(8.0, min(12.0, seat_half * 0.30))
+
+    seat_center_x = profile["front_join_x"] + max(20.0, apse_radius * 0.18)
+    rear_limit_x = profile["front_join_x"] + apse_radius - 48.0
+    throne_rear_extent = seat_half + (back_half_x * 2.0)
+    seat_center_x = min(seat_center_x, rear_limit_x - throne_rear_extent)
+    seat_center_x = max(seat_center_x, profile["front_join_x"] - (seat_half * 0.30))
+
+    corpse_min_x = seat_center_x + throne_rear_extent + 12.0
+    corpse_max_x = profile["front_join_x"] + apse_radius - 28.0
+    if corpse_min_x > corpse_max_x:
+        corpse_x = corpse_max_x
+    else:
+        corpse_x = profile["front_join_x"] + (apse_radius * 0.84)
+        corpse_x = max(corpse_x, corpse_min_x)
+        corpse_x = min(corpse_x, corpse_max_x)
+
+    return {
+        "seat_center_x": seat_center_x,
+        "seat_half": seat_half,
+        "arm_half_x": seat_half,
+        "arm_half_y": arm_half_y,
+        "arm_center_y": seat_half + arm_half_y,
+        "back_half_x": back_half_x,
+        "back_half_y": seat_half + arm_half_y*1.75,
+        "back_center_x": seat_center_x + seat_half + back_half_x,
+        "corpse_x": corpse_x,
+    }
+
+
 def throne_room_local_outline(half_length: float, half_width: float) -> list[tuple[float, float]]:
     profile = throne_room_profile_from_half_sizes(half_length, half_width)
     l = float(half_length)
@@ -4308,6 +4318,28 @@ def supply_room_profile_from_half_sizes(half_length: float, half_width: float) -
         "rockets_y": rockets_y,
         "pedestal_x": pedestal_x,
         "pedestal_half": pedestal_half,
+    }
+
+
+def blackbox_room_profile_from_half_sizes(half_length: float, half_width: float) -> dict[str, float]:
+    half_length = max(760.0, float(half_length))
+    half_width = max(720.0, float(half_width))
+    # Masjid al-Haram approximate outer dimensions used for shape ratio.
+    mosque_len_m = 366.0
+    mosque_wid_m = 356.0
+    # Kaaba approximate side lengths; use average side and then double the ratio.
+    kaaba_side_avg_m = (11.03 + 12.86) * 0.5
+    mosque_avg_span_m = (mosque_len_m + mosque_wid_m) * 0.5
+    doubled_cube_ratio = (kaaba_side_avg_m / mosque_avg_span_m) * 2.0
+    span_half = min(half_length, half_width)
+    cube_half = max(
+        52.0,
+        min(span_half * 0.22, span_half * doubled_cube_ratio),
+    )
+    pillar_half = max(16.0, min(26.0, span_half * 0.03))
+    return {
+        "cube_half": cube_half,
+        "pillar_half": pillar_half,
     }
 
 
@@ -6372,7 +6404,7 @@ def generate_poly_layout(
             )
             half_length = pit_half
             half_width = pit_half
-        elif room_variant == "TheSupplyRoom":
+        elif room_variant in {"TheSupplyRoom", "TheBarrelRoom"}:
             supply_base_half_length = max(
                 260.0 * ROOM_GEOMETRY_SCALE,
                 min(360.0 * ROOM_GEOMETRY_SCALE, max(half_length * 0.58, half_width * 1.05)),
@@ -6382,6 +6414,16 @@ def generate_poly_layout(
             half_width = max(
                 150.0 * ROOM_GEOMETRY_SCALE,
                 min(250.0 * ROOM_GEOMETRY_SCALE, min(half_width * 0.72, half_length * 0.58)),
+            )
+        elif room_variant == "TheBlackboxRoom":
+            mosque_half_length = max(
+                760.0 * ROOM_GEOMETRY_SCALE,
+                min(980.0 * ROOM_GEOMETRY_SCALE, max(half_length * 1.25, half_width * 1.30)),
+            )
+            half_length = mosque_half_length
+            half_width = max(
+                720.0 * ROOM_GEOMETRY_SCALE,
+                min(950.0 * ROOM_GEOMETRY_SCALE, mosque_half_length * (356.0 / 366.0)),
             )
         elif room_variant == "TheThroneRoom":
             throne_base_half_length = max(
@@ -8370,7 +8412,7 @@ def add_room_internal_sectors(
             free_mask_local_points_by_room,
         )
 
-    if room.special_room_variant == "TheSupplyRoom":
+    if room.special_room_variant in {"TheSupplyRoom", "TheBarrelRoom"}:
         room_floor = map_data.sectors[room_sector].floor_height
         room_ceiling = map_data.sectors[room_sector].ceiling_height
         room_light = map_data.sectors[room_sector].light_level
@@ -8489,12 +8531,161 @@ def add_room_internal_sectors(
             free_mask_local_points_by_room,
         )
 
+    if room.special_room_variant == "TheBlackboxRoom":
+        room_floor = map_data.sectors[room_sector].floor_height
+        room_ceiling = max(map_data.sectors[room_sector].ceiling_height, room_floor + 416)
+        room_light = map_data.sectors[room_sector].light_level
+        room_poly_world = tuple(room.polygon)
+        profile = blackbox_room_profile_from_half_sizes(room.half_length, room.half_width)
+        map_data.sectors[room_sector].ceiling_height = room_ceiling
+
+        def rect_local(cx: float, cy: float, hx: float, hy: float) -> list[tuple[float, float]]:
+            return [
+                (cx - hx, cy + hy),
+                (cx + hx, cy + hy),
+                (cx + hx, cy - hy),
+                (cx - hx, cy - hy),
+            ]
+
+        def local_poly_inside_room(local_poly: list[tuple[float, float]]) -> bool:
+            if len(local_poly) < 3:
+                return False
+            for idx in range(len(local_poly)):
+                x1, y1 = local_poly[idx]
+                x2, y2 = local_poly[(idx + 1) % len(local_poly)]
+                for lx, ly in ((x1, y1), ((x1 + x2) * 0.5, (y1 + y2) * 0.5)):
+                    if not point_in_room_local_shape(room, lx, ly):
+                        return False
+                    wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
+                    if not point_in_polygon((float(wx), float(wy)), room_poly_world):
+                        return False
+            return True
+
+        def add_local_sector(
+            local_poly: list[tuple[float, float]],
+            *,
+            floor_h: int,
+            floor_tex: str,
+            wall_tex: str,
+            mark_blocked: bool = False,
+        ) -> bool:
+            nonlocal placed_total
+            if not local_poly_inside_room(local_poly):
+                return False
+            world_poly = [
+                local_to_world(room.center, room.tangent, room.normal, lx, ly)
+                for lx, ly in local_poly
+            ]
+            world_poly = normalize_detail_polygon(world_poly)
+            if len(world_poly) < 3:
+                return False
+            final_world_poly_i = normalize_plan_polygon(tuple(world_poly))
+            final_world_poly_i = collapse_short_polygon_edges(
+                final_world_poly_i,
+                min_edge_units=float(INTERNAL_SECTOR_MIN_EDGE_UNITS),
+            )
+            if len(final_world_poly_i) < 3:
+                return False
+
+            vertex_indices_raw = [vertex_index_world((float(x), float(y))) for x, y in final_world_poly_i]
+            vertex_indices: list[int] = []
+            for vertex_idx in vertex_indices_raw:
+                if not vertex_indices or vertex_indices[-1] != vertex_idx:
+                    vertex_indices.append(vertex_idx)
+            if len(vertex_indices) > 1 and vertex_indices[0] == vertex_indices[-1]:
+                vertex_indices.pop()
+            if len(vertex_indices) < 3 or len(set(vertex_indices)) < 3:
+                return False
+
+            detail_sector = add_sector(
+                map_data,
+                floor_height=floor_h,
+                ceiling_height=room_ceiling,
+                floor_texture=floor_tex,
+                ceiling_texture=theme.ceiling_flat,
+                light_level=room_light,
+                special=0,
+            )
+            for idx in range(len(vertex_indices)):
+                v1 = vertex_indices[idx]
+                v2 = vertex_indices[(idx + 1) % len(vertex_indices)]
+                add_boundary_line(
+                    map_data,
+                    v1_idx=v1,
+                    v2_idx=v2,
+                    right_sector=detail_sector,
+                    left_sector=room_sector,
+                    right_wall_texture=wall_tex,
+                    left_wall_texture=wall_tex,
+                )
+            if mark_blocked:
+                blocked_local_polys_by_room.setdefault(room_idx, []).append(tuple(local_poly))
+            placed_total += 1
+            return True
+
+        cube_half = float(profile["cube_half"])
+        cube_floor = min(room_ceiling - 24, room_floor + 336)
+        add_local_sector(
+            rect_local(0.0, 0.0, cube_half, cube_half),
+            floor_h=cube_floor,
+            floor_tex=BLACKBOX_CUBE_TOP_TEXTURE,
+            wall_tex=BLACKBOX_CUBE_WALL_TEXTURE,
+            mark_blocked=True,
+        )
+
+        pillar_half = float(profile["pillar_half"])
+        pillar_floor = min(room_ceiling - 24, room_floor + 96)
+        x_edge = room.half_length - 88.0
+        y_edge = room.half_width - 88.0
+        for t in (0.14, 0.34, 0.66, 0.86):
+            x = -room.half_length + (2.0 * room.half_length * t)
+            add_local_sector(
+                rect_local(x, y_edge, pillar_half, pillar_half),
+                floor_h=pillar_floor,
+                floor_tex=BLACKBOX_PILLAR_TOP_TEXTURE,
+                wall_tex=BLACKBOX_PILLAR_WALL_TEXTURE,
+                mark_blocked=True,
+            )
+            add_local_sector(
+                rect_local(x, -y_edge, pillar_half, pillar_half),
+                floor_h=pillar_floor,
+                floor_tex=BLACKBOX_PILLAR_TOP_TEXTURE,
+                wall_tex=BLACKBOX_PILLAR_WALL_TEXTURE,
+                mark_blocked=True,
+            )
+        for t in (0.32, 0.68):
+            y = -room.half_width + (2.0 * room.half_width * t)
+            add_local_sector(
+                rect_local(x_edge, y, pillar_half, pillar_half),
+                floor_h=pillar_floor,
+                floor_tex=BLACKBOX_PILLAR_TOP_TEXTURE,
+                wall_tex=BLACKBOX_PILLAR_WALL_TEXTURE,
+                mark_blocked=True,
+            )
+            add_local_sector(
+                rect_local(-x_edge, y, pillar_half, pillar_half),
+                floor_h=pillar_floor,
+                floor_tex=BLACKBOX_PILLAR_TOP_TEXTURE,
+                wall_tex=BLACKBOX_PILLAR_WALL_TEXTURE,
+                mark_blocked=True,
+            )
+
+        return (
+            placed_total,
+            blocked_local_polys_by_room,
+            sunken_local_polys_by_room,
+            decor_jobs,
+            all_platform_local_polys_by_room,
+            free_mask_local_points_by_room,
+        )
+
     if room.special_room_variant == "TheThroneRoom":
         room_floor = map_data.sectors[room_sector].floor_height
         room_ceiling = map_data.sectors[room_sector].ceiling_height
         room_light = map_data.sectors[room_sector].light_level
         room_poly_world = tuple(room.polygon)
         profile = throne_room_profile_from_half_sizes(room.half_length, room.half_width)
+        throne_layout = throne_room_throne_layout_from_half_sizes(room.half_length, room.half_width)
         # Match cathedral mood: blood base floor, but raised geometry stays normal.
         map_data.sectors[room_sector].floor_texture = CATHEDRAL_FLOOR_TEXTURE
 
@@ -8505,19 +8696,6 @@ def add_room_internal_sectors(
                 (cx + hx, cy - hy),
                 (cx - hx, cy - hy),
             ]
-
-        def half_disc_local(join_x: float, radius: float, arc_steps: int = 14) -> list[tuple[float, float]]:
-            points: list[tuple[float, float]] = [(join_x, radius)]
-            for step_idx in range(arc_steps + 1):
-                angle = (math.pi * 0.5) - ((math.pi * step_idx) / float(max(1, arc_steps)))
-                points.append(
-                    (
-                        join_x + (math.cos(angle) * radius),
-                        math.sin(angle) * radius,
-                    )
-                )
-            points.append((join_x, -radius))
-            return points
 
         def local_poly_inside_room(local_poly: list[tuple[float, float]]) -> bool:
             if len(local_poly) < 3:
@@ -8588,18 +8766,62 @@ def add_room_internal_sectors(
             return True
 
         dais_back_x = profile["dais_back_x"]
-        apse_platform_radius = max(72.0, min(room.half_width - 18.0, profile["apse_radius"] - 128.0))
-        apse_platform_join_x = profile["front_join_x"] + 2.0
         throne_connected_specs: list[dict[str, object]] = []
-        throne_connected_specs.append(
-            {
-                "local_poly": half_disc_local(apse_platform_join_x, apse_platform_radius),
-                "floor_h": min(room_ceiling, room_floor + 32),
-                "floor_tex": theme.transition_floor,
-                "wall_tex": THRONE_WALL_TEXTURE,
-                "parent_sector": room_sector,
-                "mark_platform": True,
-            }
+        seat_floor_h = min(room_ceiling - 24, room_floor + 24)
+        arm_floor_h = min(room_ceiling - 24, room_floor + 40)
+        back_floor_h = min(room_ceiling - 24, room_floor + 80)
+        throne_connected_specs.extend(
+            [
+                {
+                    "local_poly": rect_local(
+                        throne_layout["seat_center_x"],
+                        0.0,
+                        throne_layout["seat_half"],
+                        throne_layout["seat_half"],
+                    ),
+                    "floor_h": seat_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                    "mark_platform": True,
+                },
+                {
+                    "local_poly": rect_local(
+                        throne_layout["back_center_x"],
+                        0.0,
+                        throne_layout["back_half_x"],
+                        throne_layout["back_half_y"],
+                    ),
+                    "floor_h": back_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                },
+                {
+                    "local_poly": rect_local(
+                        throne_layout["seat_center_x"],
+                        throne_layout["arm_center_y"],
+                        throne_layout["arm_half_x"],
+                        throne_layout["arm_half_y"],
+                    ),
+                    "floor_h": arm_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                },
+                {
+                    "local_poly": rect_local(
+                        throne_layout["seat_center_x"],
+                        -throne_layout["arm_center_y"],
+                        throne_layout["arm_half_x"],
+                        throne_layout["arm_half_y"],
+                    ),
+                    "floor_h": arm_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                },
+            ]
         )
 
         # Cathedral-like bench rows in front of the throne dais.
@@ -8627,25 +8849,6 @@ def add_room_internal_sectors(
                 floor_h=min(room_ceiling, room_floor + 8),
                 floor_tex=theme.room_floor,
                 wall_tex=THRONE_WALL_TEXTURE,
-            )
-
-        stair_count = 3
-        stair_half_x = 16.0
-        stair_step = stair_half_x * 2.0
-        stair_half_y = apse_platform_radius
-        stair_start_back_x = profile["front_join_x"] - (stair_step * stair_count)
-        for step_idx, floor_delta in enumerate((8, 16, 24)):
-            # Rise toward the throne dais at the far end.
-            stair_x = stair_start_back_x + stair_half_x + (step_idx * stair_step)
-            throne_connected_specs.append(
-                {
-                    "local_poly": rect_local(stair_x, 0.0, stair_half_x, stair_half_y),
-                    "floor_h": min(room_ceiling, room_floor + floor_delta),
-                    "floor_tex": theme.room_floor,
-                    "wall_tex": THRONE_WALL_TEXTURE,
-                    "parent_sector": room_sector,
-                    "mark_platform": True,
-                }
             )
 
         add_connected_local_sectors(
@@ -10134,7 +10337,7 @@ def add_map_objects(
     scripted_treasure_room_indices = {
         room_idx
         for room_idx, name in special_room_variants.items()
-        if name in {"TheCathedral", "TheRocketArena", "TheSupplyRoom", "TheWolfensteinRoom", "TheColiseum"}
+        if name in {"TheCathedral", "TheRocketArena", "TheSupplyRoom", "TheBarrelRoom", "TheWolfensteinRoom", "TheColiseum"}
     }
     non_walkable_world_polys: list[tuple[tuple[float, float], ...]] = []
     for plan in layout.sector_plans:
@@ -11417,11 +11620,7 @@ def add_map_objects(
         room_poly = room_poly_cache.get(room_idx, tuple())
         if not room_poly:
             room_poly = tuple(room.polygon)
-        profile = throne_room_profile_from_half_sizes(room.half_length, room.half_width)
-        apse_platform_radius = max(72.0, min(room.half_width - 18.0, profile["apse_radius"] - 128.0))
-        apse_platform_join_x = profile["front_join_x"] + 2.0
-        # Keep reward clearly on top of the half-circle dais sector.
-        dais_x = apse_platform_join_x + (apse_platform_radius * 0.52)
+        throne_layout = throne_room_throne_layout_from_half_sizes(room.half_length, room.half_width)
 
         def local_world(lx: float, ly: float) -> tuple[int, int]:
             wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
@@ -11453,17 +11652,221 @@ def add_map_objects(
                 min_spacing_units=min_spacing_units,
             )
 
-        # Reward sits directly on the half-circle rear platform.
+        # Reward sits on the throne seat itself.
         place_fixed(
             reward_type,
-            dais_x,
+            throne_layout["seat_center_x"],
             0.0,
             force=True,
             min_spacing_units=16.0,
         )
-        # Torches around the reward platform area.
-        place_fixed(44, dais_x - 12.0, 108.0, min_spacing_units=24.0)
-        place_fixed(44, dais_x - 12.0, -108.0, min_spacing_units=24.0)
+        # Exactly six candelabras: three mirrored pairs along the side walls.
+        side_wall_y = max(36.0, room.half_width - 42.0)
+        x_start = -room.half_length + 128.0
+        x_end = throne_layout["seat_center_x"] - 64.0
+        if x_end <= x_start + 16.0:
+            x_positions = [x_start, x_start + 72.0, x_start + 144.0]
+        else:
+            step = (x_end - x_start) / 2.0
+            x_positions = [x_start + (step * idx) for idx in range(3)]
+        for cx in x_positions:
+            place_fixed(35, cx, side_wall_y, force=True, min_spacing_units=8.0)
+            place_fixed(35, cx, -side_wall_y, force=True, min_spacing_units=8.0)
+
+    def populate_barrel_room_treasure_room(room_idx: int, reward_type: int) -> None:
+        if room_idx < 0 or room_idx >= len(layout.rooms):
+            return
+        room = layout.rooms[room_idx]
+        room_poly = room_poly_cache.get(room_idx, tuple())
+        if not room_poly:
+            room_poly = tuple(room.polygon)
+        profile = supply_room_profile_from_half_sizes(room.half_length, room.half_width)
+
+        def local_world(lx: float, ly: float) -> tuple[int, int]:
+            wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
+            return int(round(wx)), int(round(wy))
+
+        def in_room_world(x: int, y: int) -> bool:
+            return (not room_poly) or point_in_polygon((float(x), float(y)), room_poly)
+
+        def place_fixed(
+            thing_type: int,
+            lx: float,
+            ly: float,
+            *,
+            angle: int = 0,
+            min_spacing_units: float = OBJECT_MIN_SPACING_UNITS/2,
+            force: bool = False,
+            flags: int = 7,
+        ) -> bool:
+            px, py = local_world(lx, ly)
+            if not in_room_world(px, py):
+                return False
+            return place_thing_spaced(
+                thing_type,
+                point_picker=lambda x=px, y=py: (x, y),
+                angle=angle,
+                flags=flags,
+                attempts=1,
+                force=force,
+                min_spacing_units=min_spacing_units,
+            )
+
+        def angle_toward_local(lx: float, ly: float, tx: float, ty: float) -> int:
+            wx, wy = local_world(lx, ly)
+            twx, twy = local_world(tx, ty)
+            return int(round(math.degrees(math.atan2(float(twy) - float(wy), float(twx) - float(wx))) % 360.0))
+
+        # Match SupplyRoom's reward pedestal placement (this room reuses its geometry).
+        door_sides = set(layout.room_door_sides[room_idx]) if room_idx < len(layout.room_door_sides) else set()
+        pedestal_x = profile["pedestal_x"]
+        pedestal_y = 0.0
+        door_target_lx = room.half_length
+        door_target_ly = 0.0
+        if "front" in door_sides:
+            pedestal_x = -room.half_length + 92.0
+            door_target_lx = room.half_length
+            door_target_ly = 0.0
+        elif "back" in door_sides:
+            pedestal_x = room.half_length - 92.0
+            door_target_lx = -room.half_length
+            door_target_ly = 0.0
+        elif "left" in door_sides:
+            pedestal_x = 0.0
+            pedestal_y = -room.half_width + 74.0
+            door_target_lx = 0.0
+            door_target_ly = room.half_width
+        elif "right" in door_sides:
+            pedestal_x = 0.0
+            pedestal_y = room.half_width - 74.0
+            door_target_lx = 0.0
+            door_target_ly = -room.half_width
+
+        place_fixed(
+            reward_type,
+            pedestal_x,
+            pedestal_y,
+            force=True,
+            min_spacing_units=16.0,
+        )
+
+        # Two chaingunners flank the pillar in the far end; fallback to in front of it.
+        placed_guys: list[tuple[float, float]] = []
+        if abs(pedestal_x) >= abs(pedestal_y):
+            x_sign = 1.0 if pedestal_x >= 0.0 else -1.0
+            side_sep = max(72.0, min(room.half_width - 84.0, 116.0))
+            flank_x = pedestal_x + (x_sign * 54.0)
+            front_x = pedestal_x - (x_sign * 88.0)
+            preferred = [(flank_x, side_sep), (flank_x, -side_sep)]
+            fallback = [(front_x, 52.0), (front_x, -52.0)]
+        else:
+            y_sign = 1.0 if pedestal_y >= 0.0 else -1.0
+            side_sep = max(72.0, min(room.half_length - 84.0, 116.0))
+            flank_y = pedestal_y + (y_sign * 54.0)
+            front_y = pedestal_y - (y_sign * 88.0)
+            preferred = [(side_sep, flank_y), (-side_sep, flank_y)]
+            fallback = [(52.0, front_y), (-52.0, front_y)]
+
+        for idx in range(2):
+            px, py = preferred[idx]
+            facing_angle = angle_toward_local(px, py, door_target_lx, door_target_ly)
+            if place_fixed(65, px, py, angle=facing_angle, force=False, min_spacing_units=28.0):
+                placed_guys.append((px, py))
+                continue
+            fx, fy = fallback[idx]
+            facing_angle = angle_toward_local(fx, fy, door_target_lx, door_target_ly)
+            if place_fixed(65, fx, fy, angle=facing_angle, force=True, min_spacing_units=24.0):
+                placed_guys.append((fx, fy))
+
+        # Fill the floor with explosive barrels, keeping a clear radius around the reward pedestal.
+        def clear_of_pedestal(lx: float, ly: float, clear_radius: float = 96.0) -> bool:
+            return ((lx - pedestal_x) ** 2 + (ly - pedestal_y) ** 2) >= (clear_radius * clear_radius)
+
+        def clear_of_chaingunners(lx: float, ly: float, clear_radius: float = 55.0) -> bool:
+            for gx, gy in placed_guys:
+                if ((lx - gx) ** 2 + (ly - gy) ** 2) < (clear_radius * clear_radius):
+                    return False
+            return True
+
+        step = 45.0
+        x_start = -room.half_length + 16.0
+        x_end = room.half_length - 16.0
+        y_start = -room.half_width + 16.0
+        y_end = room.half_width - 16.0
+        y = y_start
+
+        i = 0
+        while y <= y_end + 0.1:
+            x = x_start            
+            while x <= x_end + 0.1:
+                if clear_of_pedestal(x, y) and clear_of_chaingunners(x, y) and i % 2 == 0:
+                    place_fixed(2035, x, y, min_spacing_units=20.0)
+                i += 1
+                x += step
+            y += step
+
+    def populate_blackbox_treasure_room(room_idx: int, reward_type: int) -> None:
+        if room_idx < 0 or room_idx >= len(layout.rooms):
+            return
+        room = layout.rooms[room_idx]
+        room_poly = room_poly_cache.get(room_idx, tuple())
+        if not room_poly:
+            room_poly = tuple(room.polygon)
+
+        def local_world(lx: float, ly: float) -> tuple[int, int]:
+            wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
+            return int(round(wx)), int(round(wy))
+
+        def in_room_world(x: int, y: int) -> bool:
+            return (not room_poly) or point_in_polygon((float(x), float(y)), room_poly)
+
+        def place_fixed(
+            thing_type: int,
+            lx: float,
+            ly: float,
+            *,
+            angle: int = 0,
+            min_spacing_units: float = OBJECT_MIN_SPACING_UNITS,
+            force: bool = False,
+            flags: int = 7,
+        ) -> bool:
+            px, py = local_world(lx, ly)
+            if not in_room_world(px, py):
+                return False
+            return place_thing_spaced(
+                thing_type,
+                point_picker=lambda x=px, y=py: (x, y),
+                angle=angle,
+                flags=flags,
+                attempts=1,
+                force=force,
+                min_spacing_units=min_spacing_units,
+            )
+
+        door_sides = set(layout.room_door_sides[room_idx]) if room_idx < len(layout.room_door_sides) else set()
+        reward_margin = 112.0
+        reward_lx = room.half_length - reward_margin
+        reward_ly = 0.0
+        if "front" in door_sides:
+            reward_lx = room.half_length - reward_margin
+            reward_ly = 0.0
+        elif "back" in door_sides:
+            reward_lx = -room.half_length + reward_margin
+            reward_ly = 0.0
+        elif "left" in door_sides:
+            reward_lx = 0.0
+            reward_ly = room.half_width - reward_margin
+        elif "right" in door_sides:
+            reward_lx = 0.0
+            reward_ly = -room.half_width + reward_margin
+
+        place_fixed(
+            reward_type,
+            reward_lx,
+            reward_ly,
+            force=True,
+            min_spacing_units=16.0,
+        )
 
     def populate_hexagon_treasure_room(room_idx: int, reward_type: int) -> None:
         if room_idx < 0 or room_idx >= len(layout.rooms):
@@ -12090,6 +12493,12 @@ def add_map_objects(
             continue
         if variant_name == "TheThroneRoom":
             populate_throne_room_treasure_room(room_idx, reward_type)
+            continue
+        if variant_name == "TheBarrelRoom":
+            populate_barrel_room_treasure_room(room_idx, reward_type)
+            continue
+        if variant_name == "TheBlackboxRoom":
+            populate_blackbox_treasure_room(room_idx, reward_type)
             continue
         if variant_name == "TheHexagon":
             populate_hexagon_treasure_room(room_idx, reward_type)
