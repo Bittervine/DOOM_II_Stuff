@@ -107,7 +107,7 @@ ROOM_SUNKEN_PLATFORM_DEPTH_UNITS = 6
 OBJECT_MIN_SPACING_UNITS = 32.0
 OBJECT_POOL_GRID_STEP_UNITS = OBJECT_MIN_SPACING_UNITS * 0.5
 PLANNED_CANDELABRA_THING_TYPE = 35
-PLANNED_CANDELABRA_ROOM_CHANCE = 0.20
+PLANNED_CANDELABRA_ROOM_CHANCE = 0.33
 PLANNED_CANDELABRA_CELL_SIZE_UNITS = 64.0
 PLANNED_CANDELABRA_DOOR_INSET_UNITS = 56.0
 PLANNED_CANDELABRA_MIN_SPACING_UNITS = 24.0
@@ -4366,7 +4366,7 @@ def mirror_hall_profile_from_half_sizes(half_length: float, half_width: float) -
     half_width = max(240.0, float(half_width))
     trench_half_width = max(34.0, min(56.0, half_width * 0.18))
     # Keep more space at both far ends for reward/pillar and navigation.
-    trench_half_length = max(240.0, min(half_length - 176.0, half_length * 0.78))
+    trench_half_length = max(180.0, min(half_length - 176.0, half_length * 0.78) - 60.0)
     return {
         "trench_half_width": trench_half_width,
         "trench_half_length": trench_half_length,
@@ -4417,12 +4417,13 @@ def mirror_hall_reward_pedestal_local(
         room.half_length - 72.0,
         max(-room.half_length + 72.0, float(trench_half_length) + 80.0),
     )
-    x = far_x
+    # Keep reward at opposite end of the room relative to the likely entry side.
+    x = -far_x
     y = 0.0
     if "back" in sides:
-        x = -far_x
-    elif "right" in sides:
-        x = -far_x
+        x = far_x
+    elif "left" in sides:
+        x = far_x
     return float(x), float(y)
 
 
@@ -7818,6 +7819,11 @@ def add_room_internal_sectors(
         layout.key_sequence,
         layout.lock_sequence,
     )
+    exit_room_idx = select_exit_room_index_from_connections(
+        len(layout.rooms),
+        layout.connections,
+        layout.lock_sequence,
+    )
     key_room_indices = {
         int(idx)
         for idx, _color in layout.key_sequence
@@ -8973,7 +8979,16 @@ def add_room_internal_sectors(
         def try_add_ruin_rect(cx: float, cy: float, hx: float, hy: float) -> None:
             try_add_ruin_poly(rect_local(cx, cy, hx, hy))
 
-        def add_house_ruin(cx: float, cy: float, hx: float, hy: float, *, use_l_corner: bool = False) -> None:
+        def add_house_ruin(
+            cx: float,
+            cy: float,
+            hx: float,
+            hy: float,
+            *,
+            use_l_corner: bool = False,
+            rotated_labels: set[str] | None = None,
+        ) -> None:
+            rotate_set = rotated_labels or set()
             # Long walls are along X (top and bottom).
             long_open_half = max(16.0, min(24.0, hx * 0.26))
             short_open_half = max(14.0, min(20.0, hy * 0.28))
@@ -9001,12 +9016,14 @@ def add_room_internal_sectors(
             right_x = cx + hx
 
             wall_rects = (
-                (top_left_cx, top_y, top_left_hx, wall_half_thickness),
-                (cx, bottom_y, hx, wall_half_thickness),
-                (left_x, left_top_cy, wall_half_thickness, left_top_hy),
-                (left_x, left_bottom_cy, wall_half_thickness, left_bottom_hy),
+                ("top_left", top_left_cx, top_y, top_left_hx, wall_half_thickness),
+                ("bottom", cx, bottom_y, hx, wall_half_thickness),
+                ("left_top", left_x, left_top_cy, wall_half_thickness, left_top_hy),
+                ("left_bottom", left_x, left_bottom_cy, wall_half_thickness, left_bottom_hy),
             )
-            for wx, wy, whx, why in wall_rects:
+            for label, wx, wy, whx, why in wall_rects:
+                if label in rotate_set:
+                    whx, why = why, whx
                 try_add_ruin_rect(wx, wy, whx, why)
 
             if use_l_corner:
@@ -9039,7 +9056,20 @@ def add_room_internal_sectors(
             # Keep within room bounds.
             clamped_hx = min(hx, max(56.0, room.half_length - abs(cx) - 36.0))
             clamped_hy = min(hy, max(40.0, room.half_width - abs(cy) - 36.0))
-            add_house_ruin(cx, cy, clamped_hx, clamped_hy, use_l_corner=(house_idx == 0))
+            rotate_labels: set[str] = set()
+            # Rotate exactly two ruin-wall sectors by 90 degrees.
+            if house_idx == 1:
+                rotate_labels.add("left_top")
+            elif house_idx == 2:
+                rotate_labels.add("left_top")
+            add_house_ruin(
+                cx,
+                cy,
+                clamped_hx,
+                clamped_hy,
+                use_l_corner=(house_idx == 0),
+                rotated_labels=rotate_labels,
+            )
 
         add_connected_local_sectors(
             ruins,
@@ -9576,7 +9606,11 @@ def add_room_internal_sectors(
         room_ceiling = map_data.sectors[room_sector].ceiling_height
         room_light = map_data.sectors[room_sector].light_level
 
-        if room.special_room_variant is None and rng.random() < float(NORMAL_ROOM_LAKE_PROBABILITY):
+        if (
+            room_idx != exit_room_idx
+            and room.special_room_variant is None
+            and rng.random() < float(NORMAL_ROOM_LAKE_PROBABILITY)
+        ):
             room_poly_world = tuple(room.polygon)
             water_floor = max(-32768, room_floor - ROOM_SUNKEN_PLATFORM_DEPTH_UNITS)
             map_data.sectors[room_sector].floor_height = water_floor
@@ -11602,15 +11636,6 @@ def add_map_objects(
             )
 
     candelabra_free_cell_cache: dict[int, set[tuple[int, int]]] = {}
-    candelabra_door_specs_cache: dict[int, list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]]] = {}
-
-    def room_world_to_local(room: OrientedRoom, wx: float, wy: float) -> tuple[float, float]:
-        dx = float(wx) - room.center[0]
-        dy = float(wy) - room.center[1]
-        return (
-            (dx * room.tangent[0]) + (dy * room.tangent[1]),
-            (dx * room.normal[0]) + (dy * room.normal[1]),
-        )
 
     def build_candelabra_free_cells(room_idx: int) -> set[tuple[int, int]]:
         if room_idx in candelabra_free_cell_cache:
@@ -11655,65 +11680,6 @@ def add_map_objects(
 
         candelabra_free_cell_cache[room_idx] = free_cells
         return free_cells
-
-    def room_door_opening_specs(
-        room_idx: int,
-    ) -> list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]]:
-        if room_idx in candelabra_door_specs_cache:
-            return candelabra_door_specs_cache[room_idx]
-        specs: list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]] = []
-        seen_edges: set[int] = set()
-        for plan in layout.sector_plans:
-            if plan.kind != "door" or plan.door_room != room_idx or len(plan.polygon) < 3:
-                continue
-            if plan.door_edge >= 0:
-                if plan.door_edge in seen_edges:
-                    continue
-                seen_edges.add(plan.door_edge)
-            points = [(float(px), float(py)) for px, py in plan.polygon]
-            if len(points) < 2:
-                continue
-            best_axis = (1.0, 0.0)
-            best_len_sq = -1.0
-            for idx in range(len(points)):
-                a = points[idx]
-                b = points[(idx + 1) % len(points)]
-                dx = b[0] - a[0]
-                dy = b[1] - a[1]
-                d2 = (dx * dx) + (dy * dy)
-                if d2 > best_len_sq:
-                    best_len_sq = d2
-                    if d2 > 1.0e-9:
-                        inv = 1.0 / math.sqrt(d2)
-                        best_axis = (dx * inv, dy * inv)
-            if best_len_sq <= 1.0e-9:
-                continue
-
-            projs = [((p[0] * best_axis[0]) + (p[1] * best_axis[1]), p) for p in points]
-            min_proj = min(value for value, _ in projs)
-            max_proj = max(value for value, _ in projs)
-            tol = max(1.0e-6, math.sqrt(best_len_sq) * 0.02)
-            min_group = [p for value, p in projs if value <= (min_proj + tol)]
-            max_group = [p for value, p in projs if value >= (max_proj - tol)]
-            if not min_group or not max_group:
-                min_p = min(projs, key=lambda item: item[0])[1]
-                max_p = max(projs, key=lambda item: item[0])[1]
-            else:
-                min_p = (
-                    sum(p[0] for p in min_group) / float(len(min_group)),
-                    sum(p[1] for p in min_group) / float(len(min_group)),
-                )
-                max_p = (
-                    sum(p[0] for p in max_group) / float(len(max_group)),
-                    sum(p[1] for p in max_group) / float(len(max_group)),
-                )
-            center = (
-                sum(p[0] for p in points) / float(len(points)),
-                sum(p[1] for p in points) / float(len(points)),
-            )
-            specs.append((min_p, max_p, center))
-        candelabra_door_specs_cache[room_idx] = specs
-        return specs
 
     def candelabra_neighbor_sides_are_safe(
         room_idx: int,
@@ -11799,28 +11765,6 @@ def add_map_objects(
             return True
         return False
 
-    def candelabra_cell_is_placeable(
-        room_idx: int,
-        cell: tuple[int, int],
-        free_cells: set[tuple[int, int]],
-        used_cells: set[tuple[int, int]],
-    ) -> bool:
-        if cell in used_cells:
-            return False
-        if cell not in free_cells:
-            return False
-        if not candelabra_neighbor_sides_are_safe(room_idx, cell, free_cells):
-            return False
-
-        room = layout.rooms[room_idx]
-        cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-        lx = float(cell[0]) * cell_size
-        ly = float(cell[1]) * cell_size
-        wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
-        px = int(round(wx))
-        py = int(round(wy))
-        return is_spot_clear(px, py)
-
     def add_planned_candelabras(room_idx: int, room: OrientedRoom) -> None:
         if rng.random() >= float(PLANNED_CANDELABRA_ROOM_CHANCE):
             return
@@ -11854,86 +11798,7 @@ def add_map_objects(
                     count += 1
             return count
 
-        def place_door_side_strategy() -> int:
-            count = 0
-            door_specs = room_door_opening_specs(room_idx)
-            if not door_specs:
-                return 0
-            cell_side_offset = max(cell_size * 0.55, 36.0)
-            wall_inset = min(max(8.0, cell_size * 0.20), 16.0)
-            paired_offset_cells: list[tuple[int, int]] = []
-            for radius in range(0, 3):
-                for dy in range(-radius, radius + 1):
-                    for dx in range(-radius, radius + 1):
-                        if max(abs(dx), abs(dy)) != radius:
-                            continue
-                        paired_offset_cells.append((dx, dy))
-
-            for left_p, right_p, center in door_specs:
-                door_axis = v_sub(right_p, left_p)
-                axis_len = v_len(door_axis)
-                if axis_len <= 1.0e-6:
-                    continue
-                door_axis = v_scale(door_axis, 1.0 / axis_len)
-                half_span = axis_len * 0.5
-
-                toward_room = v_sub(room.center, center)
-                toward_room = v_sub(toward_room, v_scale(door_axis, v_dot(toward_room, door_axis)))
-                if v_len(toward_room) <= 1.0e-6:
-                    toward_room = v_perp(door_axis)
-                inward = v_norm(toward_room)
-                if v_dot(inward, v_sub(room.center, center)) < 0.0:
-                    inward = v_scale(inward, -1.0)
-
-                lateral = half_span + cell_side_offset
-                left_target = (
-                    center[0] - (door_axis[0] * lateral) + (inward[0] * wall_inset),
-                    center[1] - (door_axis[1] * lateral) + (inward[1] * wall_inset),
-                )
-                right_target = (
-                    center[0] + (door_axis[0] * lateral) + (inward[0] * wall_inset),
-                    center[1] + (door_axis[1] * lateral) + (inward[1] * wall_inset),
-                )
-                left_local = room_world_to_local(room, left_target[0], left_target[1])
-                right_local = room_world_to_local(room, right_target[0], right_target[1])
-                left_base = (
-                    int(round(float(left_local[0]) / cell_size)),
-                    int(round(float(left_local[1]) / cell_size)),
-                )
-                right_base = (
-                    int(round(float(right_local[0]) / cell_size)),
-                    int(round(float(right_local[1]) / cell_size)),
-                )
-
-                placed_pair = False
-                for ox, oy in paired_offset_cells:
-                    left_cell = (left_base[0] + ox, left_base[1] + oy)
-                    right_cell = (right_base[0] + ox, right_base[1] + oy)
-                    if left_cell == right_cell:
-                        continue
-                    if not candelabra_cell_is_placeable(room_idx, left_cell, free_cells, used_cells):
-                        continue
-                    if not candelabra_cell_is_placeable(room_idx, right_cell, free_cells, used_cells):
-                        continue
-                    if not try_place_candelabra_cell(room_idx, left_cell, free_cells, used_cells):
-                        continue
-                    if not try_place_candelabra_cell(room_idx, right_cell, free_cells, used_cells):
-                        break
-                    count += 2
-                    placed_pair = True
-                    break
-                if not placed_pair:
-                    continue
-            return count
-
-        if rng.random() < 0.5:
-            placed = place_corner_strategy()
-            if placed <= 0:
-                place_door_side_strategy()
-        else:
-            placed = place_door_side_strategy()
-            if placed <= 0:
-                place_corner_strategy()
+        place_corner_strategy()
 
     def key_world_spot_is_valid(
         room_idx: int,
@@ -13434,6 +13299,9 @@ def add_map_objects(
             cover_polys,
             entry_targets,
         )
+        if special_room_variants.get(room_idx) == "TheMirrorHall":
+            # Keep MirrorHall clean: only hardcoded room pieces + monsters.
+            continue
         add_map_pickups(room_idx, item_blocked)
         add_map_decorations(room_idx, room, item_blocked)
 
@@ -13443,6 +13311,8 @@ def add_map_objects(
     barrel_room_count = min(len(shuffled), max(2, len(layout.rooms) // 5))
     for room_idx in shuffled[:barrel_room_count]:
         if room_idx in scripted_treasure_room_indices:
+            continue
+        if special_room_variants.get(room_idx) == "TheMirrorHall":
             continue
         room = layout.rooms[room_idx]
         blocked = room_item_blocked(room_idx)
@@ -13458,6 +13328,8 @@ def add_map_objects(
 
     for room_idx in room_indices:
         if room_idx in scripted_treasure_room_indices:
+            continue
+        if special_room_variants.get(room_idx) == "TheMirrorHall":
             continue
         room = layout.rooms[room_idx]
         add_planned_candelabras(room_idx, room)
