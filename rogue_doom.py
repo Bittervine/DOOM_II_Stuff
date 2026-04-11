@@ -131,9 +131,9 @@ PUDDLE_MIN_AREA_SCALE = 0.55
 PUDDLE_MAX_AREA_SCALE = 1.65
 PUDDLE_MIN_VERTEX_SPACING_UNITS = 5.0
 PUDDLE_SECTOR_PROBABILITY = 0.10
-NORMAL_ROOM_LAKE_PROBABILITY = 0.15
-NORMAL_ROOM_LAKE_DRY_AREA_MIN_RATIO = 0.48
-NORMAL_ROOM_LAKE_DRY_AREA_MAX_RATIO = 0.52
+NORMAL_ROOM_LAKE_PROBABILITY = 0.10
+NORMAL_ROOM_LAKE_DRY_AREA_MIN_RATIO = 0.45
+NORMAL_ROOM_LAKE_DRY_AREA_MAX_RATIO = 0.60
 KILLING_POOL_PROBABILITY = 0.34
 KILLING_POOL_DEPTH_UNITS = 25  # Just above Doom's 24-unit step-up limit.
 KILLING_POOL_FLOOR_TEXTURE = "DBRAIN1"
@@ -9609,8 +9609,20 @@ def add_room_internal_sectors(
                 ly = float(iy) * cell_size
                 for ix in range(cx_min, cx_max + 1):
                     lx = float(ix) * cell_size
-                    if point_in_room_local_shape(room, lx, ly):
-                        free_cells.append((ix, iy))
+                    if not point_in_room_local_shape(room, lx, ly):
+                        continue
+                    # Safety margin: keep dry-land growth at least one full grid
+                    # cell away from room walls.
+                    touches_wall = False
+                    for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nx = lx + (float(ox) * cell_size)
+                        ny = ly + (float(oy) * cell_size)
+                        if not point_in_room_local_shape(room, nx, ny):
+                            touches_wall = True
+                            break
+                    if touches_wall:
+                        continue
+                    free_cells.append((ix, iy))
 
             dry_min = float(NORMAL_ROOM_LAKE_DRY_AREA_MIN_RATIO)
             dry_max = float(NORMAL_ROOM_LAKE_DRY_AREA_MAX_RATIO)
