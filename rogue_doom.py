@@ -101,7 +101,6 @@ DEBUG_INTERNAL_SECTOR_PLACEMENT = True
 DEBUG_DISABLE_PUDDLE_JAGGED = False
 DEBUG_APPEND_DUMMY_LAST_LINE = False
 DRAW_SIGNATURE = True
-DEBUG_SAFE_MAP03 = False
 ELEV_UNIT = 1
 ROOM_SUNKEN_PLATFORM_DEPTH_UNITS = 6
 OBJECT_MIN_SPACING_UNITS = 32.0
@@ -130,9 +129,9 @@ PUDDLE_WAVE_AMPLITUDE_FACTOR = 0.68
 PUDDLE_MIN_AREA_SCALE = 0.55
 PUDDLE_MAX_AREA_SCALE = 1.65
 PUDDLE_MIN_VERTEX_SPACING_UNITS = 5.0
-PUDDLE_SECTOR_PROBABILITY = 0.10
-NORMAL_ROOM_LAKE_PROBABILITY = 0.10
-NORMAL_ROOM_LAKE_DRY_AREA_MIN_RATIO = 0.45
+PUDDLE_SECTOR_PROBABILITY = 0.08
+NORMAL_ROOM_LAKE_PROBABILITY = 0.12
+NORMAL_ROOM_LAKE_DRY_AREA_MIN_RATIO = 0.40
 NORMAL_ROOM_LAKE_DRY_AREA_MAX_RATIO = 0.60
 KILLING_POOL_PROBABILITY = 0.34
 KILLING_POOL_DEPTH_UNITS = 25  # Just above Doom's 24-unit step-up limit.
@@ -8835,18 +8834,54 @@ def add_room_internal_sectors(
 
         trench_hx = float(profile["trench_half_length"])
         trench_hy = float(profile["trench_half_width"])
-        mirror_specs: list[dict[str, object]] = [
-            {
-                "local_poly": rect_local(0.0, 0.0, trench_hx, trench_hy),
-                "floor_h": max(-32768, room_floor - 40),
-                "floor_tex": "BLOOD1",
-                "wall_tex": MIRROR_WALL_TEXTURE,
-                "parent_sector": room_sector,
-                "special": SUNKEN_POOL_DAMAGE_SPECIAL,
-                "mark_sunken": True,
-                "mark_blocked": True,
-            },
-        ]
+        door_sides = layout.room_door_sides[room_idx] if room_idx < len(layout.room_door_sides) else ()
+        reward_x_probe, _reward_y_probe = mirror_hall_reward_pedestal_local(room, door_sides, trench_hx)
+        far_sign = 1.0 if reward_x_probe >= 0.0 else -1.0
+
+        deep_floor_h = max(-32768, room_floor - 40)
+        step1_floor_h = max(deep_floor_h + 8, room_floor - 24)
+        step2_floor_h = max(step1_floor_h + 8, room_floor - 8)
+        step_len = max(24.0, min(56.0, trench_hx * 0.14))
+        step_total = min(trench_hx * 0.42, step_len * 2.0)
+        step_len = step_total * 0.5
+        trench_step_specs: list[tuple[float, float, int, int]] = []
+        if far_sign > 0.0:
+            deep_min_x = -trench_hx
+            deep_max_x = trench_hx - (2.0 * step_len)
+            step1_min_x = deep_max_x
+            step1_max_x = trench_hx - step_len
+            step2_min_x = step1_max_x
+            step2_max_x = trench_hx
+        else:
+            step2_min_x = -trench_hx
+            step2_max_x = -trench_hx + step_len
+            step1_min_x = step2_max_x
+            step1_max_x = -trench_hx + (2.0 * step_len)
+            deep_min_x = step1_max_x
+            deep_max_x = trench_hx
+        trench_step_specs.extend(
+            (
+                ((deep_min_x + deep_max_x) * 0.5, max(8.0, (deep_max_x - deep_min_x) * 0.5), deep_floor_h, SUNKEN_POOL_DAMAGE_SPECIAL),
+                ((step1_min_x + step1_max_x) * 0.5, max(8.0, (step1_max_x - step1_min_x) * 0.5), step1_floor_h, 0),
+                ((step2_min_x + step2_max_x) * 0.5, max(8.0, (step2_max_x - step2_min_x) * 0.5), step2_floor_h, 0),
+            )
+        )
+
+        mirror_specs: list[dict[str, object]] = []
+        for cx, hx, floor_h, special in trench_step_specs:
+            step_floor_tex = "BLOOD1" if special == SUNKEN_POOL_DAMAGE_SPECIAL else theme.room_floor
+            mirror_specs.append(
+                {
+                    "local_poly": rect_local(cx, 0.0, hx, trench_hy),
+                    "floor_h": floor_h,
+                    "floor_tex": step_floor_tex,
+                    "wall_tex": MIRROR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                    "special": special,
+                    "mark_sunken": True,
+                    "mark_blocked": True,
+                }
+            )
         for t in (-0.36, -0.12, 0.12, 0.36):
             cx = room.half_length * t
             for sign in (-1.0, 1.0):
@@ -8862,7 +8897,6 @@ def add_room_internal_sectors(
                     }
                 )
 
-        door_sides = layout.room_door_sides[room_idx] if room_idx < len(layout.room_door_sides) else ()
         pedestal_x, pedestal_y = mirror_hall_reward_pedestal_local(room, door_sides, trench_hx)
         pedestal_half = max(18.0, min(26.0, float(KEY_AND_TREASURE_PILLAR_STEPS)))
         mirror_specs.append(
@@ -9606,8 +9640,11 @@ def add_room_internal_sectors(
         room_ceiling = map_data.sectors[room_sector].ceiling_height
         room_light = map_data.sectors[room_sector].light_level
 
+        ### LAKE ROOM ###
+
         if (
-            room_idx != exit_room_idx
+            room_idx != 0
+            and room_idx != exit_room_idx
             and room.special_room_variant is None
             and rng.random() < float(NORMAL_ROOM_LAKE_PROBABILITY)
         ):
@@ -9860,6 +9897,8 @@ def add_room_internal_sectors(
                     free_mask_local_points_by_room,
                 )
     
+        ### NORMAL ROOM ###
+
         # *** PASS 1: Decide internal-sector plan for this room (count + kinds) ***
         puddle_prob = max(0.0, min(0.95, float(PUDDLE_SECTOR_PROBABILITY)))
         non_puddle_base = (
@@ -9887,15 +9926,17 @@ def add_room_internal_sectors(
                     return kind_name
             return mode_weighted_kinds[-1][0]
 
-        room_platform_mode = rng.randrange(4)
+        room_platform_mode = rng.randrange(5)
         if room_platform_mode == 0:
             platform_plan = ["puddle_sector"] # Lake room
         elif room_platform_mode == 1:
             platform_plan = [choose_weighted_platform_kind() for _ in range(2)] # Random few
         elif room_platform_mode == 2:
             platform_plan = [choose_weighted_platform_kind() for _ in range(3)] # Random many
+        elif room_platform_mode == 3:
+            platform_plan = [choose_weighted_platform_kind() for _ in range(4)] # Random lots
         else:
-            platform_plan = [choose_weighted_platform_kind() for _ in range(4)] # Storage room
+            platform_plan = [choose_weighted_platform_kind() for _ in range(5)] # Random omg boxes
         log_trace(
             f"SECTOR_ROOM_PLAN room={room_idx} mode={room_platform_mode} "
             f"plan={','.join(platform_plan)}"
@@ -11007,6 +11048,7 @@ def add_map_objects(
             "TheRocketArena",
             "TheSupplyRoom",
             "TheBarrelRoom",
+            "TheMirrorHall",
             "TheForrestroom",
             "TheWolfensteinRoom",
             "TheColiseum",
@@ -11530,8 +11572,8 @@ def add_map_objects(
                     uy = vy / mag
                 # Keep "behind cover" intent, but often allow a further stand-off
                 # to avoid always looking nose-to-obstacle.                
-                forward_offset = rng.uniform(56.0, 300.0*i/72.0)
-                lateral_offset = rng.uniform(-40.0, 40.0)
+                forward_offset = rng.uniform(56.0, 512.0*i/72.0)
+                lateral_offset = rng.uniform(-10.0, 10.0)
                 px = cx + (ux * forward_offset) + ((-uy) * lateral_offset)
                 py = cy + (uy * forward_offset) + (ux * lateral_offset)
                 if not local_spawn_valid(px, py, edge_clearance_sq):
@@ -12735,7 +12777,22 @@ def add_map_objects(
 
         door_sides = layout.room_door_sides[room_idx] if room_idx < len(layout.room_door_sides) else ()
         trench_hx = float(profile["trench_half_length"])
+        trench_hy = float(profile["trench_half_width"])
         reward_lx, reward_ly = mirror_hall_reward_pedestal_local(room, door_sides, trench_hx)
+
+        mini_pillar_points: list[tuple[float, float]] = []
+        for t in (-0.36, -0.12, 0.12, 0.36):
+            cx = room.half_length * t
+            mini_pillar_points.append((cx, trench_hy + 56.0))
+            mini_pillar_points.append((cx, -(trench_hy + 56.0)))
+        for pillar_lx, pillar_ly in mini_pillar_points:
+            place_fixed(
+                2048,  # Ammo box
+                pillar_lx,
+                pillar_ly,
+                force=True,
+                min_spacing_units=8.0,
+            )
 
         if not place_fixed(
             reward_type,
@@ -12750,7 +12807,42 @@ def add_map_objects(
                 if place_fixed(reward_type, fx, fy, force=True, min_spacing_units=8.0):
                     break
 
-        # MirrorHall monsters are now handled by normal room population logic.
+        # Fixed MirrorHall encounter: 10 fully alert imps, 5 per side of the trench.
+        far_sign = 1.0 if reward_lx >= 0.0 else -1.0
+        door_target_lx = -far_sign * room.half_length
+        door_target_ly = 0.0
+        door_side_set = {str(side) for side in door_sides}
+        if "left" in door_side_set:
+            door_target_lx = 0.0
+            door_target_ly = -room.half_width
+        elif "right" in door_side_set:
+            door_target_lx = 0.0
+            door_target_ly = room.half_width
+        side_lanes = (
+            trench_hy + 86.0,
+            -(trench_hy + 86.0),
+        )
+        # Keep spawns in the far half of the room while the trench is still present.
+        lane_x_factors = (0.52, 0.64, 0.74, 0.84, 0.92)
+        for lane_y in side_lanes:
+            for xf in lane_x_factors:
+                spawn_lx = far_sign * trench_hx * xf
+                facing = int(
+                    round(
+                        math.degrees(
+                            math.atan2(door_target_ly - lane_y, door_target_lx - spawn_lx)
+                        )
+                    )
+                ) % 360
+                place_fixed(
+                    3001,  # Imp
+                    spawn_lx,
+                    lane_y,
+                    angle=facing,
+                    force=True,
+                    min_spacing_units=monster_spawn_clearance_units(3001),
+                    flags=7 | THING_FLAG_AMBUSH,
+                )
 
     def populate_forrest_treasure_room(room_idx: int, reward_type: int) -> None:
         if room_idx < 0 or room_idx >= len(layout.rooms):
@@ -13292,13 +13384,15 @@ def add_map_objects(
         entry_targets = expected_entry_targets(room_idx)
         if entry_targets is None and room_idx == 0:
             entry_targets = ((float(start_x), float(start_y)),)
-        add_map_monsters(
-            room_idx,
-            room,
-            blocked,
-            cover_polys,
-            entry_targets,
-        )
+        # MAP01: keep the starter room monster-free.
+        if not (map_num == 1 and room_idx == 0):
+            add_map_monsters(
+                room_idx,
+                room,
+                blocked,
+                cover_polys,
+                entry_targets,
+            )
         if special_room_variants.get(room_idx) == "TheMirrorHall":
             # Keep MirrorHall clean: only hardcoded room pieces + monsters.
             continue
@@ -15096,32 +15190,30 @@ def make_map_geometry(
     platform_local_polys_by_room.clear()
     room_free_mask_local_points_by_room.clear()
     pool_state: dict[str, int] = {"placed_puddle_count": 0}
-    skip_internal_details = DEBUG_SAFE_MAP03 and spec.output_map.upper() == "MAP03"
-    if not skip_internal_details:
-        for room_idx in range(len(layout.rooms)):
-            (
-                room_detail_count_part,
-                blocked_part,
-                sunken_part,
-                decor_part,
-                platform_part,
-                free_mask_part,
-            ) = add_room_internal_sectors(
-                map_data,
-                layout,
-                room_sector_lookup,
-                theme,
-                spec.theme,
-                rng,
-                room_idx=room_idx,
-                pool_state=pool_state,
-            )
-            room_detail_count += room_detail_count_part
-            blocked_local_polys_by_room.update(blocked_part)
-            sunken_local_polys_by_room.update(sunken_part)
-            decor_jobs.extend(decor_part)
-            platform_local_polys_by_room.update(platform_part)
-            room_free_mask_local_points_by_room.update(free_mask_part)
+    for room_idx in range(len(layout.rooms)):
+        (
+            room_detail_count_part,
+            blocked_part,
+            sunken_part,
+            decor_part,
+            platform_part,
+            free_mask_part,
+        ) = add_room_internal_sectors(
+            map_data,
+            layout,
+            room_sector_lookup,
+            theme,
+            spec.theme,
+            rng,
+            room_idx=room_idx,
+            pool_state=pool_state,
+        )
+        room_detail_count += room_detail_count_part
+        blocked_local_polys_by_room.update(blocked_part)
+        sunken_local_polys_by_room.update(sunken_part)
+        decor_jobs.extend(decor_part)
+        platform_local_polys_by_room.update(platform_part)
+        room_free_mask_local_points_by_room.update(free_mask_part)
     sunken_light_fixes = align_sunken_sector_lighting_to_rooms(
         map_data,
         layout,
@@ -16574,11 +16666,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--safe-map03",
-        action="store_true",
-        help="Debug mode: skip risky MAP03 internal detail geometry.",
-    )
-    parser.add_argument(
         "--no-znodes",
         action="store_true",
         help="Skip post-build zdbsp node pass (ZNODES).",
@@ -16593,10 +16680,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    global DEBUG, DEBUG_SAFE_MAP03
+    global DEBUG
     if getattr(args, "debug", False):
         DEBUG = 1
-    DEBUG_SAFE_MAP03 = bool(args.safe_map03)
     script_dir = Path(__file__).resolve().parent
     output = resolve_path(args.output, script_dir).resolve()
     specs = default_episode_plan(base_seed=int(args.seed))

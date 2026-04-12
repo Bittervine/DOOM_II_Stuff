@@ -16,7 +16,7 @@ set "MOD5=X\gearbox-v0.7.2.pk3"
 
 pushd "%SCRIPT_DIR%" || exit /b 1
 
-c:\Portable\WinPython\python\python.exe rogue_doom.py --seed 20260406
+c:\Portable\WinPython\python\python.exe rogue_doom.py --seed 20260419
 if errorlevel 1 (
     echo ERROR: rogue_doom.py failed.
     popd

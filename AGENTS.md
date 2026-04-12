@@ -1,3 +1,4 @@
 - Only commit when explicitly told to do so
 - Only push when explicitly told to do so
 - Python is usually in c:\Portable\WinPython\python\python.exe
+- If asked for changes that are problematic or leads to fragile solution in current design: Stop, notify the user and ask for confirmation before implementing.
