@@ -11777,6 +11777,8 @@ def add_map_objects(
         lx: float,
         ly: float,
         blocked_local_polys: list[tuple[tuple[float, float], ...]],
+        *,
+        clearance_units: float = 0.0,
     ) -> bool:
         room = layout.rooms[room_idx]
         if not point_in_room_local_shape(room, lx, ly):
@@ -11784,6 +11786,13 @@ def add_map_objects(
         local_point = (lx, ly)
         if any(point_in_polygon(local_point, poly) for poly in blocked_local_polys):
             return False
+        if clearance_units > 0.0:
+            clearance_sq = float(clearance_units) * float(clearance_units)
+            if any(
+                min_distance_to_polygon_edges_sq(local_point, poly) < clearance_sq
+                for poly in blocked_local_polys
+            ):
+                return False
         wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
         px = int(round(wx))
         py = int(round(wy))
@@ -11792,6 +11801,8 @@ def add_map_objects(
         if room_poly and not point_in_polygon(world_point, room_poly):
             return False
         if any(point_in_polygon(world_point, poly) for poly in non_walkable_world_polys):
+            return False
+        if clearance_units > 0.0 and not point_clear_of_lines(world_point, line_segments, clearance_units):
             return False
         return True
 
@@ -11803,6 +11814,7 @@ def add_map_objects(
         sy: float,
     ) -> bool:
         cell_size = float(OBJECT_MIN_SPACING_UNITS)
+        corner_clearance_units = 24.0
         inward_x = 1.0 if sx < 0.0 else -1.0
         inward_y = -1.0 if sy > 0.0 else 1.0
         base_lx = (sx * room.half_length) + (inward_x * cell_size)
@@ -11814,7 +11826,13 @@ def add_map_objects(
             (base_lx + (inward_x * cell_size), base_ly + (inward_y * cell_size)),
         )
         if not all(
-            candelabra_cell_is_walkable(room_idx, lx, ly, blocked_local_polys)
+            candelabra_cell_is_walkable(
+                room_idx,
+                lx,
+                ly,
+                blocked_local_polys,
+                clearance_units=corner_clearance_units,
+            )
             for lx, ly in required_cells
         ):
             return False
