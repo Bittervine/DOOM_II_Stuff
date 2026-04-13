@@ -107,9 +107,6 @@ OBJECT_MIN_SPACING_UNITS = 32.0
 OBJECT_POOL_GRID_STEP_UNITS = OBJECT_MIN_SPACING_UNITS * 0.5
 PLANNED_CANDELABRA_THING_TYPE = 35
 PLANNED_CANDELABRA_ROOM_CHANCE = 0.33
-PLANNED_CANDELABRA_CELL_SIZE_UNITS = 64.0
-PLANNED_CANDELABRA_DOOR_INSET_UNITS = 56.0
-PLANNED_CANDELABRA_MIN_SPACING_UNITS = 24.0
 MIN_WALKABLE_GAP_WIDTH = 33.0  # 32 actually but +1 if my diet fails.
 INTERNAL_SECTOR_WALL_CLEARANCE_UNITS = 48.0  # Extra margin to avoid diagonal pinch points.
 OBJECT_MIN_HEADROOM_UNITS = 56
@@ -213,6 +210,16 @@ def log_event(message: str) -> None:
     log_diag(f"{rel}{message}")
     # Include relative-timing prefixed trace when verbose tracing is enabled.
     log_trace(message)
+
+
+def log_retry_attempt(scope: str, attempt_idx: int, total_attempts: int, detail: str = "") -> None:
+    """Persist retry telemetry for any sub-step that needed another attempt."""
+    if int(attempt_idx) <= 1:
+        return
+    suffix = f" {detail}" if detail else ""
+    log_event(
+        f"RETRY scope={scope} attempt={int(attempt_idx)}/{max(1, int(total_attempts))}{suffix}"
+    )
 
 EXIT_SWITCH_PANEL_WIDTH_UNITS = 64
 EXIT_SIGN_ROOM_OFFSET_UNITS = 12
@@ -649,16 +656,16 @@ TREASURE_ROOM_VARIANT_CHANCES: tuple[tuple[str, float], ...] = (
     ("TheRocketArena", 0.03),
     ("ThePit", 0.03),
     ("TheThroneRoom", 0.03),
-    ("TheBarrelRoom", 0.03),
+    ("TheWolfensteinRoom", 0.03),
     ("TheBlackboxRoom", 0.03),
     ("TheMirrorHall", 0.03),
     ("TheForrestroom", 0.03),
-    ("TheHexagon", 0.03),
-    ("TheWolfensteinRoom", 0.03),
+    ("TheHexagon", 0.03),    
+    ("TheSupplyRoom", 0.03),
     ("TheColiseum", 0.03),
     ("TheTriangle", 0.03),
     ("TheCutCornerRoom", 0.03),
-    ("TheSupplyRoom", 0.03),
+    ("TheBarrelRoom", 0.03),
 )
 CATHEDRAL_FLOOR_TEXTURE = "BLOOD1"
 THRONE_WALL_TEXTURE = "GSTONE2"
@@ -1520,6 +1527,12 @@ def place_rooms(
     attempts = 0
     while len(rooms) < target_rooms and attempts < 1200:
         attempts += 1
+        log_retry_attempt(
+            "place_rooms",
+            attempts,
+            1200,
+            detail=f"placed={len(rooms)} target={target_rooms}",
+        )
         rw = rng.randint(6, 12)
         rh = rng.randint(5, 10)
         shape = make_room_shape(rng, rw, rh)
@@ -4529,6 +4542,12 @@ def generate_room_centers(room_count: int, rng: random.Random) -> list[tuple[flo
         prev = centers[-1]
         placed = False
         for attempt in range(48):
+            log_retry_attempt(
+                "room_center_place_main",
+                attempt + 1,
+                48,
+                detail=f"idx={len(centers)}",
+            )
             turn = rng.uniform(-1.0, 1.0) if attempt < 16 else rng.uniform(-1.6, 1.6)
             heading_try = heading + turn
             step = rng.uniform(1800.0, 2300.0) * CORRIDOR_LENGTH_SCALE
@@ -4783,7 +4802,8 @@ def generate_room_graph(
             ordered_centers = [centers[idx] for idx in range(room_count)]
             return ordered_centers, edges_local
 
-        for _ in range(120):
+        for attempt_idx in range(1, 121):
+            log_retry_attempt("strict_graph_build", attempt_idx, 120)
             built = try_build()
             if built is not None:
                 return built
@@ -4819,7 +4839,13 @@ def generate_room_graph(
                 base_tangent = (math.cos(angle), math.sin(angle))
 
         placed = False
-        for _ in range(48):
+        for attempt_idx in range(1, 49):
+            log_retry_attempt(
+                "room_center_place_branch",
+                attempt_idx,
+                48,
+                detail=f"idx={idx}",
+            )
             side_sign = 1.0 if rng.random() < 0.5 else -1.0
             side_dir = v_scale(v_perp(base_tangent), side_sign)
             drift = rng.uniform(-0.35, 0.35)
@@ -10211,6 +10237,12 @@ def add_room_internal_sectors(
             placed_this_slot = False
 
             for attempt_idx in range(1, MAX_RETRIES + 1):
+                log_retry_attempt(
+                    "internal_sector_place",
+                    attempt_idx,
+                    MAX_RETRIES,
+                    detail=f"room={room_idx} kind={platform_kind}",
+                )
                 log_trace(
                     f"SECTOR_ATTEMPT room={room_idx} kind={platform_kind} attempt={attempt_idx}/{MAX_RETRIES}"
                 )
@@ -10833,6 +10865,12 @@ def place_internal_sector_decor(
         placed_decor_points: list[tuple[float, float]] = []
         for decor_idx in range(1, decor_target + 1):
             for attempt_idx in range(1, MAX_RETRIES + 1):
+                log_retry_attempt(
+                    "internal_sector_decor",
+                    attempt_idx,
+                    MAX_RETRIES,
+                    detail=f"decor_idx={decor_idx} target={decor_target}",
+                )
                 px = rng.uniform(min_wx + inset, max_wx - inset)
                 py = rng.uniform(min_wy + inset, max_wy - inset)
                 if not point_in_polygon((px, py), poly_world):
@@ -10884,7 +10922,7 @@ def random_point_in_room(
                     return False
         return True
 
-    for _ in range(72):
+    for _ in range(50):
         lx = rng.uniform(-room.half_length * margin, room.half_length * margin)
         ly = rng.uniform(-room.half_width * margin, room.half_width * margin)
         if not local_point_is_valid(lx, ly):
@@ -10909,7 +10947,7 @@ def random_point_in_room(
         wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
         return int(round(wx)), int(round(wy))
 
-    for _ in range(180):
+    for _ in range(100):
         lx = rng.uniform(-room.half_length * margin, room.half_length * margin)
         ly = rng.uniform(-room.half_width * margin, room.half_width * margin)
         if not local_point_is_valid(lx, ly):
@@ -11192,6 +11230,52 @@ def add_map_objects(
 
         return picker
 
+    def room_point_picker_far_half_from_entry(
+        room_idx: int,
+        margin: float,
+        blocked_local_polys: list[tuple[tuple[float, float], ...]],
+    ):
+        room = layout.rooms[room_idx]
+        margin_x = room.half_length * float(margin)
+        margin_y = room.half_width * float(margin)
+        entry_targets = expected_entry_targets(room_idx)
+        if entry_targets:
+            ex = sum(point[0] for point in entry_targets) / float(len(entry_targets))
+            ey = sum(point[1] for point in entry_targets) / float(len(entry_targets))
+            away_dx = room.center[0] - ex
+            away_dy = room.center[1] - ey
+            away_len = math.hypot(away_dx, away_dy)
+            if away_len > 1e-6:
+                away_dx /= away_len
+                away_dy /= away_len
+            else:
+                away_dx, away_dy = (1.0, 0.0)
+        else:
+            away_dx, away_dy = (1.0, 0.0)
+
+        def is_far_half_local(lx: float, ly: float) -> bool:
+            wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
+            # Dot >= 0 keeps points on the half-plane opposite the entry direction.
+            return (((wx - room.center[0]) * away_dx) + ((wy - room.center[1]) * away_dy)) >= 0.0
+
+        def picker() -> tuple[int, int]:
+            pool = build_room_candidate_pool(room_idx)
+            for _ in range(max(16, len(pool) // 4)):
+                if not pool:
+                    break
+                px, py, lx, ly = rng.choice(pool)
+                if abs(lx) > margin_x or abs(ly) > margin_y:
+                    continue
+                if not is_far_half_local(lx, ly):
+                    continue
+                if any(point_in_polygon((lx, ly), poly) for poly in blocked_local_polys):
+                    continue
+                return (px, py)
+            # Keep existing behavior as fallback.
+            return room_point_picker_from_pool(room_idx, margin, blocked_local_polys)()
+
+        return picker
+
     room_parent: list[int] = [-1 for _ in layout.rooms]
     room_parent_edge: list[int] = [-1 for _ in layout.rooms]
     room_depth: list[int] = [10**9 for _ in layout.rooms]
@@ -11324,6 +11408,12 @@ def add_map_objects(
         last_point: tuple[int, int] | None = None
         total_attempts = max(1, attempts)
         for attempt_idx in range(1, total_attempts + 1):
+            log_retry_attempt(
+                "place_thing_spaced",
+                attempt_idx,
+                total_attempts,
+                detail=f"type={thing_type}",
+            )
             x, y = point_picker()
             last_point = (x, y)
             if not is_spot_clear(x, y):
@@ -11384,6 +11474,11 @@ def add_map_objects(
 
     def random_point_in_start_room_polygon() -> tuple[int, int]:
         for attempt_idx in range(1, MAX_RETRIES + 1):
+            log_retry_attempt(
+                "start_room_point_pick",
+                attempt_idx,
+                MAX_RETRIES,
+            )
             wx, wy = start_room_pool_picker()
             if world_start_spot_is_clear(wx, wy):
                 return wx, wy
@@ -11677,170 +11772,86 @@ def add_map_objects(
                 attempts=60,
             )
 
-    candelabra_free_cell_cache: dict[int, set[tuple[int, int]]] = {}
-
-    def build_candelabra_free_cells(room_idx: int) -> set[tuple[int, int]]:
-        if room_idx in candelabra_free_cell_cache:
-            return candelabra_free_cell_cache[room_idx]
-        if room_idx < 0 or room_idx >= len(layout.rooms):
-            candelabra_free_cell_cache[room_idx] = set()
-            return set()
-
-        room = layout.rooms[room_idx]
-        room_poly = room_poly_cache.get(room_idx, tuple())
-        blocked = room_blocked_cache.get(room_idx, [])
-        cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-        edge_clearance_sq = OBJECT_MIN_SPACING_UNITS * OBJECT_MIN_SPACING_UNITS
-        cx_min = int(math.floor((-room.half_length) / cell_size)) - 1
-        cx_max = int(math.ceil((room.half_length) / cell_size)) + 1
-        cy_min = int(math.floor((-room.half_width) / cell_size)) - 1
-        cy_max = int(math.ceil((room.half_width) / cell_size)) + 1
-        free_cells: set[tuple[int, int]] = set()
-
-        for cy in range(cy_min, cy_max + 1):
-            ly = float(cy) * cell_size
-            for cx in range(cx_min, cx_max + 1):
-                lx = float(cx) * cell_size
-                if not point_in_room_local_shape(room, lx, ly):
-                    continue
-                local_point = (lx, ly)
-                if any(point_in_polygon(local_point, poly) for poly in blocked):
-                    continue
-                if any(min_distance_to_polygon_edges_sq(local_point, poly) < edge_clearance_sq for poly in blocked):
-                    continue
-                wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
-                px = int(round(wx))
-                py = int(round(wy))
-                world_point = (float(px), float(py))
-                if room_poly and not point_in_polygon(world_point, room_poly):
-                    continue
-                if any(point_in_polygon(world_point, poly) for poly in non_walkable_world_polys):
-                    continue
-                if not point_clear_of_lines(world_point, line_segments, OBJECT_MIN_SPACING_UNITS):
-                    continue
-                free_cells.add((cx, cy))
-
-        candelabra_free_cell_cache[room_idx] = free_cells
-        return free_cells
-
-    def candelabra_neighbor_sides_are_safe(
+    def candelabra_cell_is_walkable(
         room_idx: int,
-        cell: tuple[int, int],
-        free_cells: set[tuple[int, int]],
+        lx: float,
+        ly: float,
+        blocked_local_polys: list[tuple[tuple[float, float], ...]],
     ) -> bool:
         room = layout.rooms[room_idx]
-        cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-        cx, cy = cell
-        for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nx = cx + ox
-            ny = cy + oy
-            nlx = float(nx) * cell_size
-            nly = float(ny) * cell_size
-            # Outside the room shape is treated as a wall side.
-            if not point_in_room_local_shape(room, nlx, nly):
-                continue
-            # Every in-room side must have a free neighboring cell.
-            if (nx, ny) not in free_cells:
-                return False
-            nwx, nwy = local_to_world(room.center, room.tangent, room.normal, nlx, nly)
-            if not is_spot_clear(int(round(nwx)), int(round(nwy))):
-                return False
-        return True
-
-    def candidate_cells_around(base: tuple[int, int], max_radius: int = 2) -> list[tuple[int, int]]:
-        bx, by = base
-        out: list[tuple[int, int]] = []
-        seen: set[tuple[int, int]] = set()
-        for radius in range(0, max(0, max_radius) + 1):
-            for dy in range(-radius, radius + 1):
-                for dx in range(-radius, radius + 1):
-                    if max(abs(dx), abs(dy)) != radius:
-                        continue
-                    cell = (bx + dx, by + dy)
-                    if cell in seen:
-                        continue
-                    seen.add(cell)
-                    out.append(cell)
-        return out
-
-    def try_place_candelabra_cell(
-        room_idx: int,
-        cell: tuple[int, int],
-        free_cells: set[tuple[int, int]],
-        used_cells: set[tuple[int, int]],
-    ) -> bool:
-        def can_place() -> bool:
-            if cell in used_cells:
-                return False
-            if cell not in free_cells:
-                return False
-            if not candelabra_neighbor_sides_are_safe(room_idx, cell, free_cells):
-                return False
-            room = layout.rooms[room_idx]
-            cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-            lx = float(cell[0]) * cell_size
-            ly = float(cell[1]) * cell_size
-            wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
-            return is_spot_clear(int(round(wx)), int(round(wy)))
-
-        if not can_place():
+        if not point_in_room_local_shape(room, lx, ly):
             return False
-
-        room = layout.rooms[room_idx]
-        cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-        lx = float(cell[0]) * cell_size
-        ly = float(cell[1]) * cell_size
+        local_point = (lx, ly)
+        if any(point_in_polygon(local_point, poly) for poly in blocked_local_polys):
+            return False
         wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
         px = int(round(wx))
         py = int(round(wy))
+        world_point = (float(px), float(py))
+        room_poly = room_poly_cache.get(room_idx, tuple())
+        if room_poly and not point_in_polygon(world_point, room_poly):
+            return False
+        if any(point_in_polygon(world_point, poly) for poly in non_walkable_world_polys):
+            return False
+        return True
 
-        placed = place_thing_spaced(
-            PLANNED_CANDELABRA_THING_TYPE,
-            point_picker=lambda x=px, y=py: (x, y),
-            flags=7,
-            attempts=1,
-            force=True,
-            min_spacing_units=PLANNED_CANDELABRA_MIN_SPACING_UNITS,
+    def try_place_corner_candelabra(
+        room_idx: int,
+        room: OrientedRoom,
+        blocked_local_polys: list[tuple[tuple[float, float], ...]],
+        sx: float,
+        sy: float,
+    ) -> bool:
+        cell_size = float(OBJECT_MIN_SPACING_UNITS)
+        inward_x = 1.0 if sx < 0.0 else -1.0
+        inward_y = -1.0 if sy > 0.0 else 1.0
+        base_lx = (sx * room.half_length) + (inward_x * cell_size)
+        base_ly = (sy * room.half_width) + (inward_y * cell_size)
+        required_cells = (
+            (base_lx, base_ly),
+            (base_lx + (inward_x * cell_size), base_ly),
+            (base_lx, base_ly + (inward_y * cell_size)),
+            (base_lx + (inward_x * cell_size), base_ly + (inward_y * cell_size)),
         )
-        if placed:
-            used_cells.add(cell)
-            return True
-        return False
-
-    def add_planned_candelabras(room_idx: int, room: OrientedRoom) -> None:
-        if rng.random() >= float(PLANNED_CANDELABRA_ROOM_CHANCE):
-            return
-
-        free_cells = build_candelabra_free_cells(room_idx)
-        if not free_cells:
-            return
-        cell_size = float(PLANNED_CANDELABRA_CELL_SIZE_UNITS)
-        used_cells: set[tuple[int, int]] = set()
-
-        def try_place_near_local(lx: float, ly: float) -> bool:
-            base = (
-                int(round(float(lx) / cell_size)),
-                int(round(float(ly) / cell_size)),
-            )
-            for cell in candidate_cells_around(base, max_radius=2):
-                if try_place_candelabra_cell(room_idx, cell, free_cells, used_cells):
-                    return True
+        if not all(
+            candelabra_cell_is_walkable(room_idx, lx, ly, blocked_local_polys)
+            for lx, ly in required_cells
+        ):
             return False
 
-        def place_corner_strategy() -> int:
-            count = 0
-            inset = max(cell_size * 0.80, min(56.0, float(PLANNED_CANDELABRA_DOOR_INSET_UNITS)))
-            for lx, ly in (
-                (-room.half_length + inset, room.half_width - inset),
-                (-room.half_length + inset, -room.half_width + inset),
-                (room.half_length - inset, room.half_width - inset),
-                (room.half_length - inset, -room.half_width + inset),
-            ):
-                if try_place_near_local(lx, ly):
-                    count += 1
-            return count
+        wx, wy = local_to_world(room.center, room.tangent, room.normal, base_lx, base_ly)
+        px = int(round(wx))
+        py = int(round(wy))
+        facing_dx = (room.tangent[0] * inward_x) + (room.normal[0] * inward_y)
+        facing_dy = (room.tangent[1] * inward_x) + (room.normal[1] * inward_y)
+        candelabra_angle = int(round(math.degrees(math.atan2(facing_dy, facing_dx)) % 360.0))
+        if not is_spot_clear(px, py):
+            return False
+        if not add_object(
+            map_data,
+            px,
+            py,
+            PLANNED_CANDELABRA_THING_TYPE,
+            angle=candelabra_angle,
+            flags=7,
+            line_segments=line_segments,
+            min_spacing_units=24.0,
+            non_walkable_polys=non_walkable_world_polys,
+            debug_label="planned_candelabra",
+        ):
+            return False
+        record_spot(px, py)
+        return True
 
-        place_corner_strategy()
+    def add_planned_candelabras(room_idx: int, room: OrientedRoom) -> None:
+        blocked_local_polys = room_blocked_cache.get(room_idx, [])
+        for sx, sy in (
+            (-1.0, 1.0),
+            (-1.0, -1.0),
+            (1.0, 1.0),
+            (1.0, -1.0),
+        ):
+            try_place_corner_candelabra(room_idx, room, blocked_local_polys, sx, sy)
 
     def key_world_spot_is_valid(
         room_idx: int,
@@ -11906,6 +11917,16 @@ def add_map_objects(
                 return
 
         blocked = room_item_blocked(room_idx)
+        # First attempt: bias progression keys into the half farthest from entry.
+        far_half_key_picker = room_point_picker_far_half_from_entry(room_idx, 0.45, blocked)
+        if place_thing_spaced(
+            thing_type,
+            point_picker=far_half_key_picker,
+            flags=7,
+            attempts=56,
+            force=False,
+        ):
+            return
         key_picker = room_point_picker_from_pool(room_idx, 0.45, blocked)
         placed = place_thing_spaced(
             thing_type,
@@ -11919,7 +11940,13 @@ def add_map_objects(
 
         # Progressive fallback while preserving strict safety constraints.
         for spacing in (OBJECT_MIN_SPACING_UNITS, 24.0, 16.0):
-            for _ in range(160):
+            for attempt_idx in range(1, 161):
+                log_retry_attempt(
+                    "key_place_fallback",
+                    attempt_idx,
+                    160,
+                    detail=f"room={room_idx} spacing={spacing:.1f}",
+                )
                 px, py = key_picker()
                 if not key_world_spot_is_valid(room_idx, room, blocked, px, py):
                     continue
@@ -13374,6 +13401,23 @@ def add_map_objects(
             continue
         place_key_guaranteed(room_idx, thing_type)
 
+    candelabra_room_candidates = [
+        idx
+        for idx in room_indices
+        if idx not in scripted_treasure_room_indices
+        and special_room_variants.get(idx) != "TheMirrorHall"
+    ]
+    planned_candelabra_rooms: set[int] = set()
+    if candelabra_room_candidates and PLANNED_CANDELABRA_ROOM_CHANCE > 0.0:
+        rng.shuffle(candelabra_room_candidates)
+        target_float = float(len(candelabra_room_candidates)) * float(PLANNED_CANDELABRA_ROOM_CHANCE)
+        target_floor = int(math.floor(target_float))
+        target_count = target_floor
+        if rng.random() < (target_float - float(target_floor)):
+            target_count += 1
+        target_count = max(0, min(len(candelabra_room_candidates), target_count))
+        planned_candelabra_rooms = set(candelabra_room_candidates[:target_count])
+
     for room_idx in room_indices:
         if room_idx in scripted_treasure_room_indices:
             continue
@@ -13381,6 +13425,9 @@ def add_map_objects(
         blocked = room_item_blocked(room_idx)
         cover_polys = list((blocked_local_polys_by_room or {}).get(room_idx, []))
         item_blocked = room_item_blocked(room_idx)
+        is_mirror_hall = special_room_variants.get(room_idx) == "TheMirrorHall"
+        if room_idx in planned_candelabra_rooms:
+            add_planned_candelabras(room_idx, room)
         entry_targets = expected_entry_targets(room_idx)
         if entry_targets is None and room_idx == 0:
             entry_targets = ((float(start_x), float(start_y)),)
@@ -13393,7 +13440,7 @@ def add_map_objects(
                 cover_polys,
                 entry_targets,
             )
-        if special_room_variants.get(room_idx) == "TheMirrorHall":
+        if is_mirror_hall:
             # Keep MirrorHall clean: only hardcoded room pieces + monsters.
             continue
         add_map_pickups(room_idx, item_blocked)
@@ -13419,14 +13466,6 @@ def add_map_objects(
                 flags=7,
                 attempts=60,
             )
-
-    for room_idx in room_indices:
-        if room_idx in scripted_treasure_room_indices:
-            continue
-        if special_room_variants.get(room_idx) == "TheMirrorHall":
-            continue
-        room = layout.rooms[room_idx]
-        add_planned_candelabras(room_idx, room)
 
     corridor_points: list[tuple[float, float]] = []
     corridor_monster_points: list[tuple[tuple[float, float], tuple[float, float]]] = []
@@ -13688,7 +13727,8 @@ def add_map_objects(
                 ):
                     continue
         blocked = room_item_blocked(room_idx)
-        reward_picker = room_point_picker_from_pool(room_idx, 0.42, blocked)
+        # First attempt for normal/basic treasure rooms: try the far half first.
+        reward_picker = room_point_picker_far_half_from_entry(room_idx, 0.42, blocked)
         place_thing_spaced(
             reward_type,
             point_picker=reward_picker,
@@ -16315,7 +16355,7 @@ def build_pwad(output: Path, specs: list[EpisodeMapSpec], *, build_znodes: bool 
             raise ValueError(f"Unknown theme '{spec.theme}'.")
         chosen_seed = int(spec.map_seed)
         rng = random.Random(chosen_seed)
-        monster_rng = random.Random(chosen_seed ^ 0x555555AA)
+        monster_rng = random.Random(chosen_seed ^ 0x55555AAA)
         layout, map_data, room_detail_count, room_sector_lookup = make_map(
             spec,
             theme,
