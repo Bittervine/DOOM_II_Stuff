@@ -294,6 +294,7 @@ class EpisodeMapSpec:
     theme: str
     room_target: int
     map_seed: int
+    treasure_room_variant: str | None = None
 
 
 @dataclass(frozen=True)
@@ -650,23 +651,59 @@ TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
     (2013, 10), # Soulsphere    
 )
 
-# Future treasure-room variants can be added here as absolute replacement chances.
-TREASURE_ROOM_VARIANT_CHANCES: tuple[tuple[str, float], ...] = (
-    ("TheCathedral", 0.03),
-    ("TheRocketArena", 0.03),
-    ("ThePit", 0.03),
-    ("TheThroneRoom", 0.03),
-    ("TheWolfensteinRoom", 0.03),
-    ("TheBlackboxRoom", 0.03),
-    ("TheMirrorHall", 0.03),
-    ("TheForrestroom", 0.03),
-    ("TheHexagon", 0.03),    
-    ("TheSupplyRoom", 0.03),
-    ("TheColiseum", 0.03),
-    ("TheTriangle", 0.03),
-    ("TheCutCornerRoom", 0.03),
-    ("TheBarrelRoom", 0.03),
+# Treasure-room variants are scheduled once per 32-map campaign.
+TREASURE_ROOM_SPECIAL_VARIANTS: tuple[str, ...] = (
+    "TheCathedral",
+    "TheRocketArena",
+    "ThePit",
+    "TheThroneRoom",
+    "TheWolfensteinRoom",
+    "TheBlackboxRoom",
+    "TheMirrorHall",
+    "TheForrestroom",
+    "TheHexagon",
+    "TheSupplyRoom",
+    "TheColiseum",
+    "TheTriangle",
+    "TheCutCornerRoom",
+    "TheBarrelRoom",
 )
+TREASURE_ROOM_LATE_VARIANTS: tuple[str, ...] = (
+    "TheCathedral",
+    "TheBlackboxRoom",
+    "TheRocketArena",
+)
+
+
+def build_treasure_room_variant_plan(base_seed: int | None = None) -> list[str | None]:
+    if base_seed is None:
+        base_seed = default_daily_seed()
+    plan_rng = random.Random(int(base_seed) ^ 0xC0FFEE11)
+    plan: list[str | None] = [None] * DEFAULT_DEVELOPMENT_MAP_COUNT
+
+    late_half_slots = plan_rng.sample(
+        range(DEFAULT_DEVELOPMENT_MAP_COUNT // 2, DEFAULT_DEVELOPMENT_MAP_COUNT),
+        k=len(TREASURE_ROOM_LATE_VARIANTS),
+    )
+    late_variants = list(TREASURE_ROOM_LATE_VARIANTS)
+    plan_rng.shuffle(late_variants)
+    for slot, variant in zip(late_half_slots, late_variants):
+        plan[slot] = variant
+
+    remaining_variants = [
+        variant
+        for variant in TREASURE_ROOM_SPECIAL_VARIANTS
+        if variant not in TREASURE_ROOM_LATE_VARIANTS
+    ]
+    remaining_slots = [idx for idx, variant in enumerate(plan) if variant is None]
+    if len(remaining_variants) > len(remaining_slots):
+        raise ValueError("Too many treasure-room variants for a 32-map campaign plan.")
+    chosen_slots = plan_rng.sample(remaining_slots, k=len(remaining_variants))
+    plan_rng.shuffle(remaining_variants)
+    for slot, variant in zip(chosen_slots, remaining_variants):
+        plan[slot] = variant
+
+    return plan
 CATHEDRAL_FLOOR_TEXTURE = "BLOOD1"
 THRONE_WALL_TEXTURE = "GSTONE2"
 THRONE_INSET_TEXTURE = "GSTFONT2"
@@ -1058,6 +1095,8 @@ def default_episode_plan(base_seed: int | None = None) -> list[EpisodeMapSpec]:
         base_seed = default_daily_seed()
     plan_rng = random.Random(base_seed ^ 0xA5A55A5A)
     map_seed_stride = 1000003
+    # Build the treasure-room schedule once so every map slot has a planned variant.
+    treasure_room_variant_plan = build_treasure_room_variant_plan(base_seed)
 
     def choose_weighted_theme(map_num: int) -> str:
         tier = map_tier_from_number(map_num)
@@ -1076,21 +1115,22 @@ def default_episode_plan(base_seed: int | None = None) -> list[EpisodeMapSpec]:
         return weights[-1][0]
 
     specs: list[EpisodeMapSpec] = []
-    for map_num in range(1, 33):
-        if map_num<4:
-            theme = ["techbase", "urban", "hellish"][(map_num-1)%3]
+    for map_num in range(1, DEFAULT_DEVELOPMENT_MAP_COUNT + 1):
+        if map_num < 4:
+            theme = ["techbase", "urban", "hellish"][(map_num - 1) % 3]
         else:
             theme = choose_weighted_theme(map_num)
-        
+
         room_target = 10
         specs.append(
             EpisodeMapSpec(
                 output_map=f"MAP{map_num:02d}",
-                theme=theme,            
+                theme=theme,
                 room_target=room_target,
                 map_seed=base_seed + (map_num * map_seed_stride) + 55,
+                treasure_room_variant=treasure_room_variant_plan[map_num - 1],
             )
-        )    
+        )
     return specs[:]
 
 
@@ -1317,24 +1357,6 @@ def treasure_room_reward_for_map(map_num: int, rng: random.Random) -> int:
     if 1 <= int(map_num) <= len(ordered_rewards):
         return ordered_rewards[int(map_num) - 1][0]
     return weighted_pick(ordered_rewards, rng)
-
-
-def treasure_room_variant_for_map(map_name: str, rng: random.Random) -> str | None:
-    map_id = str(map_name).strip().upper()
-    if DEBUG:
-        map_num = map_number_from_name(map_id)
-        ordered_variants = [str(name) for name, chance in TREASURE_ROOM_VARIANT_CHANCES if float(chance) > 0.0]
-        if map_num is not None and 1 <= map_num <= len(ordered_variants):
-            return ordered_variants[map_num - 1]
-    if not TREASURE_ROOM_VARIANT_CHANCES:
-        return None
-    roll = rng.random()
-    cumulative = 0.0
-    for variant_name, chance in TREASURE_ROOM_VARIANT_CHANCES:
-        cumulative += max(0.0, float(chance))
-        if roll < cumulative:
-            return str(variant_name)
-    return None
 
 
 def write_wad(path: Path, wad: Wad) -> None:
@@ -6477,7 +6499,7 @@ def generate_poly_layout(
         lock_sequence,
     )
     special_room_variants_by_room: dict[int, str] = {}
-    selected_treasure_variant = treasure_room_variant_for_map(spec.output_map, rng)
+    selected_treasure_variant = spec.treasure_room_variant
     if selected_treasure_variant and treasure_room_idx >= 0:
         special_room_variants_by_room[treasure_room_idx] = selected_treasure_variant
 
@@ -9241,6 +9263,10 @@ def add_room_internal_sectors(
         seat_floor_h = min(room_ceiling - 24, room_floor + 24)
         arm_floor_h = min(room_ceiling - 24, room_floor + 40)
         back_floor_h = min(room_ceiling - 24, room_floor + 80)
+        # Split the throne back into upper/lower strips so its long vertical
+        # edge does not cut through the seat/arm junction after vertex rounding.
+        back_strip_half_y = (throne_layout["back_half_y"] - throne_layout["seat_half"]) * 0.5
+        back_strip_center_y = throne_layout["seat_half"] + back_strip_half_y
         throne_connected_specs.extend(
             [
                 {
@@ -9259,9 +9285,21 @@ def add_room_internal_sectors(
                 {
                     "local_poly": rect_local(
                         throne_layout["back_center_x"],
-                        0.0,
+                        back_strip_center_y,
                         throne_layout["back_half_x"],
-                        throne_layout["back_half_y"],
+                        back_strip_half_y,
+                    ),
+                    "floor_h": back_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                },
+                {
+                    "local_poly": rect_local(
+                        throne_layout["back_center_x"],
+                        -back_strip_center_y,
+                        throne_layout["back_half_x"],
+                        back_strip_half_y,
                     ),
                     "floor_h": back_floor_h,
                     "floor_tex": theme.transition_floor,
@@ -11230,10 +11268,12 @@ def add_map_objects(
 
         return picker
 
-    def room_point_picker_far_half_from_entry(
+    def room_point_picker_far_from_entry(
         room_idx: int,
         margin: float,
         blocked_local_polys: list[tuple[tuple[float, float], ...]],
+        *,
+        far_fraction: float = 0.5,
     ):
         room = layout.rooms[room_idx]
         margin_x = room.half_length * float(margin)
@@ -11253,28 +11293,50 @@ def add_map_objects(
         else:
             away_dx, away_dy = (1.0, 0.0)
 
-        def is_far_half_local(lx: float, ly: float) -> bool:
-            wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
-            # Dot >= 0 keeps points on the half-plane opposite the entry direction.
-            return (((wx - room.center[0]) * away_dx) + ((wy - room.center[1]) * away_dy)) >= 0.0
-
         def picker() -> tuple[int, int]:
             pool = build_room_candidate_pool(room_idx)
+            candidates: list[tuple[float, int, int]] = []
             for _ in range(max(16, len(pool) // 4)):
                 if not pool:
                     break
                 px, py, lx, ly = rng.choice(pool)
                 if abs(lx) > margin_x or abs(ly) > margin_y:
                     continue
-                if not is_far_half_local(lx, ly):
-                    continue
                 if any(point_in_polygon((lx, ly), poly) for poly in blocked_local_polys):
                     continue
+                wx, wy = local_to_world(room.center, room.tangent, room.normal, lx, ly)
+                proj = (((wx - room.center[0]) * away_dx) + ((wy - room.center[1]) * away_dy))
+                candidates.append((proj, px, py))
+            if candidates:
+                proj_values = [proj for proj, _px, _py in candidates]
+                proj_min = min(proj_values)
+                proj_max = max(proj_values)
+                if proj_max > proj_min:
+                    band = max(0.0, min(1.0, float(far_fraction)))
+                    cutoff = proj_max - ((proj_max - proj_min) * band)
+                    far_candidates = [(px, py) for proj, px, py in candidates if proj >= cutoff]
+                else:
+                    far_candidates = [(px, py) for _proj, px, py in candidates]
+                if far_candidates:
+                    return rng.choice(far_candidates)
+                px, py = max(candidates, key=lambda item: item[0])[1:]
                 return (px, py)
             # Keep existing behavior as fallback.
             return room_point_picker_from_pool(room_idx, margin, blocked_local_polys)()
 
         return picker
+
+    def room_point_picker_far_half_from_entry(
+        room_idx: int,
+        margin: float,
+        blocked_local_polys: list[tuple[tuple[float, float], ...]],
+    ):
+        return room_point_picker_far_from_entry(
+            room_idx,
+            margin,
+            blocked_local_polys,
+            far_fraction=0.5,
+        )
 
     room_parent: list[int] = [-1 for _ in layout.rooms]
     room_parent_edge: list[int] = [-1 for _ in layout.rooms]
@@ -11935,11 +11997,16 @@ def add_map_objects(
                 return
 
         blocked = room_item_blocked(room_idx)
-        # First attempt: bias progression keys into the half farthest from entry.
-        far_half_key_picker = room_point_picker_far_half_from_entry(room_idx, 0.45, blocked)
+        # First attempt: bias progression keys into the far quarter from entry.
+        far_quarter_key_picker = room_point_picker_far_from_entry(
+            room_idx,
+            0.80,
+            blocked,
+            far_fraction=0.25,
+        )
         if place_thing_spaced(
             thing_type,
-            point_picker=far_half_key_picker,
+            point_picker=far_quarter_key_picker,
             flags=7,
             attempts=56,
             force=False,
@@ -16744,7 +16811,7 @@ def main(argv: list[str]) -> int:
     script_dir = Path(__file__).resolve().parent
     output = resolve_path(args.output, script_dir).resolve()
     specs = default_episode_plan(base_seed=int(args.seed))
-    map_count = max(1, min(32, int(args.map_count)))
+    map_count = max(1, min(DEFAULT_DEVELOPMENT_MAP_COUNT, int(args.map_count)))
     if map_count < len(specs):
         specs = specs[:map_count]
     single_map = str(args.map).strip()
@@ -16757,7 +16824,11 @@ def main(argv: list[str]) -> int:
         else:
             map_num = map_number_from_name(single_map.upper())
         if map_num is None:
-            print(f"Invalid --map value: {single_map!r}. Use MAP01..MAP32 or a number 1..32.", file=sys.stderr)
+            print(
+                f"Invalid --map value: {single_map!r}. "
+                f"Use MAP01..MAP{DEFAULT_DEVELOPMENT_MAP_COUNT:02d} or a number 1..{DEFAULT_DEVELOPMENT_MAP_COUNT}.",
+                file=sys.stderr,
+            )
             return 2
         wanted = f"MAP{map_num:02d}"
         specs = [spec for spec in specs if spec.output_map == wanted]
