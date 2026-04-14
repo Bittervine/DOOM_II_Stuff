@@ -4149,7 +4149,7 @@ def throne_room_throne_layout_from_half_sizes(half_length: float, half_width: fl
     apse_radius = profile["apse_radius"]
     # Requested: throne footprint at ~50% scale, but keep strong vertical presence.
     seat_half = max(28.0, min(37.0, apse_radius * 0.17))
-    arm_half_y = max(8.0, min(12.0, seat_half * 0.28))
+    arm_half_y = max(8.0, min(12.0, seat_half * 0.25))
     back_half_x = max(8.0, min(12.0, seat_half * 0.30))
 
     seat_center_x = profile["front_join_x"] + max(20.0, apse_radius * 0.18)
@@ -9263,10 +9263,12 @@ def add_room_internal_sectors(
         seat_floor_h = min(room_ceiling - 24, room_floor + 24)
         arm_floor_h = min(room_ceiling - 24, room_floor + 40)
         back_floor_h = min(room_ceiling - 24, room_floor + 80)
-        # Split the throne back into upper/lower strips so its long vertical
-        # edge does not cut through the seat/arm junction after vertex rounding.
+        # Split the throne back into three vertical strips so the seat rear
+        # edge and both armrest back edges each have their own matching line
+        # after vertex snapping.
         back_strip_half_y = (throne_layout["back_half_y"] - throne_layout["seat_half"]) * 0.5
         back_strip_center_y = throne_layout["seat_half"] + back_strip_half_y
+        back_mid_half_y = throne_layout["seat_half"]
         throne_connected_specs.extend(
             [
                 {
@@ -9288,6 +9290,18 @@ def add_room_internal_sectors(
                         back_strip_center_y,
                         throne_layout["back_half_x"],
                         back_strip_half_y,
+                    ),
+                    "floor_h": back_floor_h,
+                    "floor_tex": theme.transition_floor,
+                    "wall_tex": THRONE_CHAIR_WALL_TEXTURE,
+                    "parent_sector": room_sector,
+                },
+                {
+                    "local_poly": rect_local(
+                        throne_layout["back_center_x"],
+                        0.0,
+                        throne_layout["back_half_x"],
+                        back_mid_half_y,
                     ),
                     "floor_h": back_floor_h,
                     "floor_tex": theme.transition_floor,
