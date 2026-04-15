@@ -543,9 +543,9 @@ MAP_TIER_EARLY_MAX = 6
 
 MAP_TIER_MID_MIN = 7
 MAP_TIER_MID_MID = 9
-MAP_TIER_MID_MAX = 11
+MAP_TIER_MID_MAX = 10
 
-MAP_TIER_LATE_MIN = 12
+MAP_TIER_LATE_MIN = 11
 MAP_TIER_LATE_MID = 31
 MAP_TIER_LATE_MAX = 32
 
@@ -8437,6 +8437,7 @@ def add_room_internal_sectors(
         room_ceiling = map_data.sectors[room_sector].ceiling_height
         room_light = map_data.sectors[room_sector].light_level
         map_data.sectors[room_sector].floor_texture = CATHEDRAL_FLOOR_TEXTURE
+        map_data.sectors[room_sector].special = SUNKEN_POOL_DAMAGE_SPECIAL
         room_poly_world = tuple(room.polygon)
         profile = cathedral_profile_from_half_sizes(room.half_length, room.half_width)
 
@@ -9181,6 +9182,7 @@ def add_room_internal_sectors(
         throne_layout = throne_room_throne_layout_from_half_sizes(room.half_length, room.half_width)
         # Match cathedral mood: blood base floor, but raised geometry stays normal.
         map_data.sectors[room_sector].floor_texture = CATHEDRAL_FLOOR_TEXTURE
+        map_data.sectors[room_sector].special = SUNKEN_POOL_DAMAGE_SPECIAL
 
         def rect_local(cx: float, cy: float, hx: float, hy: float) -> list[tuple[float, float]]:
             return [
