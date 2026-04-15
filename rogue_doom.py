@@ -740,48 +740,57 @@ KEY_AND_TREASURE_PILLAR_USED_FOR_TREASURES = True
  
 ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
     MAP_TIER_START: (
-        (2011, 10),  # Stimpack
-        (2012, 2),   # Medikit
-        (2007, 10),  # Ammo Clip
-        (2008, 10),  # Shells
-        (17, 1),     # Cell Charge
-        (2010, 1),   # Rocket
-        (2014, 33),  # Health Bonus
-        (2015, 33),  # Armor Bonus
-        (0, 0),      # No drop
+        (2011, 100),  # Stimpack
+        (2012, 20),   # Medikit
+        (2007, 100),  # Ammo Clip
+        (2008, 100),  # Shells
+        (17, 10),     # Cell Charge
+        (2010, 10),   # Rocket
+        (2014, 330),  # Health Bonus
+        (2015, 330),  # Armor Bonus
+        (0, 0),       # No drop
     ),
     MAP_TIER_EARLY: (
-        (2011, 10),  # Stimpack
-        (2012, 2),   # Medikit
-        (2007, 10),  # Ammo Clip
-        (2008, 10),  # Shells
-        (17, 1),     # Cell Charge
-        (2010, 1),   # Rocket
-        (2014, 33),  # Health Bonus
-        (2015, 33),  # Armor Bonus
-        (0, 0),      # No drop
+        (2011, 100),  # Stimpack
+        (2012, 20),   # Medikit
+        (2007, 100),  # Ammo Clip
+        (2008, 90),   # Shells
+        (17, 20),     # Cell Charge
+        (2010, 10),   # Rocket
+        (2014, 330),  # Health Bonus
+        (2015, 330),  # Armor Bonus
+        (82, 1),      # Super Shotgun    
+        (2003, 1),    # Rocket Launcher    
+        (2004, 1),    # Plasma Rifle  
+        (0, 0),       # No drop
     ),
     MAP_TIER_MID: (
-        (2011, 10),  # Stimpack
-        (2012, 2),   # Medikit
-        (2007, 10),  # Ammo Clip
-        (2008, 10),  # Shells
-        (17, 1),     # Cell Charge
-        (2010, 1),   # Rocket
-        (2014, 33),  # Health Bonus
-        (2015, 33),  # Armor Bonus
-        (0, 0),      # No drop
+        (2011, 100),  # Stimpack
+        (2012, 20),   # Medikit
+        (2007, 100),  # Ammo Clip
+        (2008, 90),   # Shells
+        (17, 20),     # Cell Charge
+        (2010, 10),   # Rocket
+        (2014, 330),  # Health Bonus
+        (2015, 330),  # Armor Bonus
+        (82, 2),      # Super Shotgun    
+        (2003, 2),    # Rocket Launcher    
+        (2004, 2),    # Plasma Rifle  
+        (0, 0),       # No drop
     ),
     MAP_TIER_LATE: (
-        (2011, 10),  # Stimpack
-        (2012, 2),   # Medikit
-        (2007, 10),  # Ammo Clip
-        (2008, 10),  # Shells
-        (17, 1),     # Cell Charge
-        (2010, 1),   # Rocket
-        (2014, 33),  # Health Bonus
-        (2015, 33),  # Armor Bonus
-        (0, 0),      # No drop
+        (2011, 100),  # Stimpack
+        (2012, 20),   # Medikit
+        (2007, 100),  # Ammo Clip
+        (2008, 90),   # Shells
+        (17, 20),     # Cell Charge
+        (2010, 10),   # Rocket
+        (2014, 330),  # Health Bonus
+        (2015, 330),  # Armor Bonus
+        (82, 3),      # Super Shotgun    
+        (2003, 3),    # Rocket Launcher    
+        (2004, 3),    # Plasma Rifle  
+        (0, 0),       # No drop
     ),
 }
 
@@ -2874,6 +2883,29 @@ def split_one_sided_line_for_center_panel(
     return middle_idx
 
 
+def splittable_one_sided_line_candidates(
+    map_data: MutableMap,
+    *,
+    panel_width: float,
+    required_front_sector: int | None = None,
+) -> list[int]:
+    """Return one-sided lines that are wide enough to center a panel cleanly."""
+    min_length_sq = (float(panel_width) + 32.0) ** 2
+    candidates: list[int] = []
+    for idx, line in enumerate(map_data.linedefs):
+        if line.left >= 0 and line.right >= 0:
+            continue
+        side_idx = line.right if line.right >= 0 else line.left
+        if side_idx < 0:
+            continue
+        if required_front_sector is not None and map_data.sidedefs[side_idx].sector != required_front_sector:
+            continue
+        if line_length_sq(map_data, idx) < min_length_sq:
+            continue
+        candidates.append(idx)
+    return candidates
+
+
 def set_exit_line_special(line: Linedef) -> None:
     # Doom namespace S1 exit switch.
     line.special = 11
@@ -3149,21 +3181,13 @@ def assign_exit_switch(
     preferred_y: int | None = None,
     required_front_sector: int | None = None,
 ) -> None:
-    candidate_exit_lines: list[int] = []
-    for idx, line in enumerate(map_data.linedefs):
-        if line.left >= 0 and line.right >= 0:
-            continue
-        side_idx = line.right if line.right >= 0 else line.left
-        if side_idx < 0:
-            continue
-        if required_front_sector is not None and map_data.sidedefs[side_idx].sector != required_front_sector:
-            continue
-        if line_length_sq(map_data, idx) < (64 * 64):
-            continue
-        candidate_exit_lines.append(idx)
+    candidate_exit_lines = splittable_one_sided_line_candidates(
+        map_data,
+        panel_width=float(EXIT_SWITCH_PANEL_WIDTH_UNITS),
+        required_front_sector=required_front_sector,
+    )
 
-    best_idx: int | None = None
-    best_score = -1.0
+    scored_candidates: list[tuple[float, int]] = []
     for idx in candidate_exit_lines:
         mx, my = line_midpoint(map_data, idx)
         dist_sq = (mx - start_x) ** 2 + (my - start_y) ** 2
@@ -3171,23 +3195,33 @@ def assign_exit_switch(
         if preferred_x is not None and preferred_y is not None:
             pref_dist_sq = (mx - preferred_x) ** 2 + (my - preferred_y) ** 2
             score += max(0.0, 1.0e10 - float(pref_dist_sq))
-        if score > best_score:
-            best_score = score
-            best_idx = idx
+        scored_candidates.append((score, idx))
 
-    if best_idx is None:
+    scored_candidates.sort(reverse=True)
+    if not scored_candidates:
         if required_front_sector is not None:
             raise ValueError(f"{map_data.name}: could not find suitable exit wall in required red-locked room sector.")
         raise ValueError(f"{map_data.name}: could not find suitable exit wall.")
 
-    best_idx = split_one_sided_line_for_center_panel(
-        map_data,
-        best_idx,
-        panel_width=float(EXIT_SWITCH_PANEL_WIDTH_UNITS),
-    )
-    switch_line_idx = build_exit_alcove_with_hanging_sign(map_data, best_idx, theme)
+    switch_line_idx: int | None = None
+    for _score, candidate_idx in scored_candidates:
+        split_idx = split_one_sided_line_for_center_panel(
+            map_data,
+            candidate_idx,
+            panel_width=float(EXIT_SWITCH_PANEL_WIDTH_UNITS),
+        )
+        if split_idx == candidate_idx:
+            continue
+        switch_line_idx = build_exit_alcove_with_hanging_sign(map_data, split_idx, theme)
+        if switch_line_idx is not None:
+            break
+
     if switch_line_idx is None:
-        switch_line_idx = best_idx
+        if required_front_sector is not None:
+            raise ValueError(
+                f"{map_data.name}: could not find a splittable exit wall in required red-locked room sector."
+            )
+        raise ValueError(f"{map_data.name}: could not find a splittable exit wall.")
 
     line = map_data.linedefs[switch_line_idx]
     set_exit_line_special(line)
@@ -3213,21 +3247,15 @@ def assign_start_entry_door(
     behind_rad = math.radians((start_angle + 180) % 360)
     behind_vec = (math.cos(behind_rad), math.sin(behind_rad))
 
-    best_idx: int | None = None
-    best_score = -1.0e18
-    for idx, line in enumerate(map_data.linedefs):
-        if line.left >= 0 and line.right >= 0:
-            continue
-        side_idx = line.right if line.right >= 0 else line.left
-        if side_idx < 0:
-            continue
-        if required_front_sector is not None and map_data.sidedefs[side_idx].sector != required_front_sector:
-            continue
+    candidate_lines = splittable_one_sided_line_candidates(
+        map_data,
+        panel_width=float(START_ENTRY_DOOR_WIDTH_UNITS),
+        required_front_sector=required_front_sector,
+    )
 
+    scored_candidates: list[tuple[float, int]] = []
+    for idx in candidate_lines:
         length_sq = line_length_sq(map_data, idx)
-        if length_sq < (START_ENTRY_DOOR_WIDTH_UNITS * START_ENTRY_DOOR_WIDTH_UNITS):
-            continue
-
         mx, my = line_midpoint(map_data, idx)
         dx = float(mx - start_x)
         dy = float(my - start_y)
@@ -3240,24 +3268,34 @@ def assign_start_entry_door(
         if dot < 0.30:
             continue
         score = (dot * 1400.0) - dist + (math.sqrt(length_sq) * 0.20)
-        if score > best_score:
-            best_score = score
-            best_idx = idx
+        scored_candidates.append((score, idx))
 
-    if best_idx is None:
+    scored_candidates.sort(reverse=True)
+    if not scored_candidates:
         return
 
-    panel_idx = split_one_sided_line_for_center_panel(
-        map_data,
-        best_idx,
-        panel_width=float(START_ENTRY_DOOR_WIDTH_UNITS),
-    )
-    build_panel_alcove_on_line(
-        map_data,
-        panel_idx,
-        entry_texture,
-        opening_blocked=True,
-    )
+    for _score, candidate_idx in scored_candidates:
+        panel_idx = split_one_sided_line_for_center_panel(
+            map_data,
+            candidate_idx,
+            panel_width=float(START_ENTRY_DOOR_WIDTH_UNITS),
+        )
+        if panel_idx == candidate_idx:
+            continue
+        built = build_panel_alcove_on_line(
+            map_data,
+            panel_idx,
+            entry_texture,
+            opening_blocked=True,
+        )
+        if built is not None:
+            return
+
+    if required_front_sector is not None:
+        raise ValueError(
+            f"{map_data.name}: could not find a splittable start-door wall in required front sector."
+        )
+    raise ValueError(f"{map_data.name}: could not find a splittable start-door wall.")
 
 
 def add_room_wall_texture_columns(
