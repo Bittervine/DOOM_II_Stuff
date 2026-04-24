@@ -638,9 +638,8 @@ def monster_collision_radius_units(thing_type: int) -> float | None:
     return float(radius)
 
 TREASURE_ROOM_REWARD_WEIGHTS: tuple[tuple[int, int], ...] = (
-    (2019, 10), # Blue Armor    
-    (2002, 5),  # Chaingun    
-    (82, 5),    # Super Shotgun    
+    (2019, 10), # Blue Armor        
+    (82, 10),   # Super Shotgun    
     (2003, 5),  # Rocket Launcher    
     (2004, 5),  # Plasma Rifle        
     (2005, 5),  # Chainsaw
@@ -759,9 +758,9 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2010, 10),   # Rocket
         (2014, 330),  # Health Bonus
         (2015, 330),  # Armor Bonus
-        (82, 1),      # Super Shotgun    
-        (2003, 1),    # Rocket Launcher    
-        (2004, 1),    # Plasma Rifle  
+        (82, 2),      # Super Shotgun    
+        (2003, 2),    # Rocket Launcher    
+        (2004, 2),    # Plasma Rifle  
         (0, 0),       # No drop
     ),
     MAP_TIER_MID: (
@@ -773,9 +772,9 @@ ROOM_PICKUP_TABLE_BY_TIER: dict[str, tuple[tuple[int, int], ...]] = {
         (2010, 10),   # Rocket
         (2014, 330),  # Health Bonus
         (2015, 330),  # Armor Bonus
-        (82, 2),      # Super Shotgun    
-        (2003, 2),    # Rocket Launcher    
-        (2004, 2),    # Plasma Rifle  
+        (82, 3),      # Super Shotgun    
+        (2003, 3),    # Rocket Launcher    
+        (2004, 3),    # Plasma Rifle  
         (0, 0),       # No drop
     ),
     MAP_TIER_LATE: (
